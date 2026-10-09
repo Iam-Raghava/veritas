@@ -18,6 +18,9 @@ from .detect import (
 )
 from .detect_nli import HuggingFaceNLIDetector
 from .detect_semantic import SemanticDetector
+from .detect_llm import LLMJudgeDetector
+from .timetravel import TimeTravel
+from .export import to_json, to_dot, to_graphml
 from .entrenchment import (
     corroboration_score,
     entrenchment,
@@ -33,7 +36,7 @@ from .explain import Explainer
 from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
-__version__ = "0.8.0"
+__version__ = "0.11.0"
 
 __all__ = [
     "Belief",
@@ -51,6 +54,11 @@ __all__ = [
     "HeuristicDetector",
     "HuggingFaceNLIDetector",
     "SemanticDetector",
+    "LLMJudgeDetector",
+    "TimeTravel",
+    "to_json",
+    "to_dot",
+    "to_graphml",
     "as_function",
     "functional_parts",
     "subject_object_parts",
