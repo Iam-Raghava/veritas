@@ -29,14 +29,21 @@ from .persist import load, register_detector, save
 from .store import BeliefStore
 from .async_store import AsyncBeliefStore
 from .observability import Metrics
+from .explain import Explainer
+from .calibration import CalibrationTracker
+from .policies import Policy, describe_policy
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "Belief",
     "BeliefStore",
     "AsyncBeliefStore",
     "Metrics",
+    "Explainer",
+    "CalibrationTracker",
+    "Policy",
+    "describe_policy",
     "AuditEvent",
     "AuditLog",
     "ContradictionFn",
