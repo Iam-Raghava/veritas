@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veritas-tms"
+version = "0.5.0"
+description = "Truth maintenance for AI agents: automated principled belief retraction"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "RAGS" }]
+keywords = ["ai", "agents", "memory", "belief-revision", "truth-maintenance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+urls = { Homepage = "https://github.com/Iam-Raghava/veritas" }
+
+[project.optional-dependencies]
+nli = ["transformers>=4.40", "torch>=2.0"]
+
+[project.scripts]
+veritas = "veritas.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["veritas*"]
