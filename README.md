@@ -120,7 +120,11 @@ Tested like infrastructure, not a demo:
 | `tests/test_persist_fuzz.py` | 30 random SQLite round-trips verified byte-identical | 30/30 pass |
 | `tests/test_soak.py` | 100k ops: linear scaling, no leaks | clean |
 | `tests/test_stress.py` | 8-thread concurrency + 100k-belief scale | all pass |
-| `tests/verify_e2e.sh` | 20 end-to-end checks (package, CLI, deployment, publish-clean) | 20/20 pass |
+| `tests/test_v03.py` | 12 formal rigor tests (EE2/EE3, zombie prevention, Hansson) | 12/12 pass |
+| `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
+| `tests/test_properties.py` | 7 mathematical invariant proofs | 7/7 pass |
+| `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 pass |
+| `tests/verify_e2e.sh` | 33 end-to-end checks (package, CLI, deployment, publish-clean) | 33/33 pass |
 
 The fuzzer and edge cases found and fixed 4 real bugs: dead
 justifications accepted at assert time, duplicate justifications leaving
@@ -222,6 +226,20 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.7.0 — semantic + async + temporal:
+- SemanticDetector: embedding-based contradiction detection (antonyms,
+  semantic opposition beyond patterns).
+- AsyncBeliefStore: asyncio API for modern agent frameworks.
+- Temporal reasoning: valid_from/valid_until; non-overlapping beliefs
+  don't contradict.
+- Framework adapters: LangChain, CrewAI, AutoGen.
+- Observability: Metrics with cache hit rates, latencies.
+- 7/7 property tests, 3/3 benchmarks. Mypy clean (16 files).
+
+v0.6.0 — async + caching + temporal (internal):
+- AsyncBeliefStore, entrenchment caching (2800x speedup),
+  temporal validity intervals.
 
 v0.5.0 — n-ary constraints + production hardening:
 - Constraint system: `add_constraint(name, check_fn)` for joint
