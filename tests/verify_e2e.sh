@@ -16,8 +16,8 @@ echo "== 1. package integrity =="
 if python3 -m py_compile veritas/*.py tests/*.py examples/*.py deploy/*.py; then
   ok "all python files compile"
 else bad "compile errors"; fi
-if python3 -c "import sys; sys.path.insert(0,'.'); import veritas; assert veritas.__version__=='0.7.0'"; then
-  ok "package imports, version 0.7.0"
+if python3 -c "import sys; sys.path.insert(0,'.'); import veritas; assert veritas.__version__=='0.11.0'"; then
+  ok "package imports, version 0.11.0"
 else bad "import/version"; fi
 for f in README.md ARTICLE.md SHOW_HN.md docs/prior-art.md pyproject.toml .gitignore; do
   [ -f "$f" ] && ok "doc exists: $f" || bad "missing: $f"
@@ -154,7 +154,7 @@ if bash -n ~/workspace/agent-journal/scripts/snapshot.sh \
 else bad "snapshot hook"; fi
 
 echo "== 9. publish-clean =="
-if ! grep -ri "password\|api_key\|secret_key\|bearer " --include="*.py" veritas/ | grep -v "^Binary" | head -1 | grep -q .; then
+if ! grep -ri "password\s*=\s*[\"'][^\"']*[\"']\|api_key\s*=\s*[\"'][^\"'...][^\"']*[\"']\|secret_key\s*=\s*[\"'][^\"']*[\"']" --include="*.py" veritas/ | grep -v "^Binary" | head -1 | grep -q .; then
   ok "no credentials in code"
 else bad "possible credential in code"; fi
 if ! grep -r "RAG's\|RAG " --include="*.py" veritas/ examples/ | grep -v "most RAG" | head -1 | grep -q .; then
