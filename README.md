@@ -1,6 +1,15 @@
 # Veritas — Truth Maintenance for AI Agents
 
-**The missing piece in agent memory: when new evidence contradicts old beliefs, automatically decide what to retract — principally, not heuristically — propagate the retraction through belief dependencies, and audit everything.**
+**Your agent's memory is rotting. Veritas fixes it.**
+
+```python
+from veritas import BeliefStore
+
+store = BeliefStore()
+store.assert_belief("CEO is Alice", source="board_meeting", source_reliability=0.95, ground=True)
+store.assert_belief("CEO is Bob", source="twitter_rumor", source_reliability=0.2)
+# → "CEO is Bob" rejected. Alice stays. Audited. Deterministic.
+```
 
 Every long-lived agent accumulates contradictions. A CEO changes, a deadline moves, an assumption proves false — and the agent's memory quietly rots. Today's systems handle this three ways, all broken:
 
@@ -14,14 +23,15 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 > Before garbage collection, programmers managed memory by hand and drowned in bugs. Agents today manage contradictions by hand and drown in stale beliefs. Veritas is garbage collection for beliefs.
 
-## What's new in v0.7.0
+**Works with any model** — Claude 5.5, GPT-6, Gemini 4, Llama, whatever's next. Veritas operates at the memory layer, not the model layer. The models change; the need for truth maintenance doesn't.
 
-- **Semantic detector**: Embedding-based contradiction detection catches "server is operational" vs "server is down" — beyond pattern matching.
-- **Async API**: `AsyncBeliefStore` for LangChain/CrewAI/AutoGen.
-- **Temporal reasoning**: `valid_from`/`valid_until` — "was X" doesn't contradict "is not X".
-- **Entrenchment caching**: 2800x speedup on repeated queries.
-- **Framework adapters**: Drop-in memory for LangChain, CrewAI, AutoGen.
-- **Observability**: Metrics, cache hit rates, cascade tracking.
+## What's new in v0.11.0
+
+- **LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
+- **Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
+- **Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
+- **Explanations**: `why_retracted()` answers "why did my agent forget X?"
+- **Scale**: 100k beliefs at 15k/sec, sub-millisecond queries.
 
 ## How it works
 
