@@ -1,7 +1,7 @@
 # Veritas — Verification Brief
 
 **For independent verification by frontier AI models.**
-Date: 2026-10-08. Version: v0.5.0. Location: `~/workspace/veritas`.
+Date: 2026-10-09. Version: v0.7.0. Location: `~/workspace/veritas`.
 
 ---
 
@@ -37,6 +37,12 @@ Veritas provides a principled, automatic, fully-audited layer:
 6. **N-ary constraints** — `store.add_constraint(name, check_fn)` for joint
    inconsistencies that pairwise detectors miss (e.g. budget violations).
    Weakest involved beliefs retracted in entrenchment order.
+7. **Semantic detection** — `SemanticDetector` uses embeddings + antonym
+   analysis to catch contradictions beyond pattern matching.
+8. **Temporal reasoning** — beliefs carry `valid_from`/`valid_until`;
+   non-overlapping intervals don't contradict.
+9. **Async API** — `AsyncBeliefStore` for asyncio-based agent frameworks.
+10. **Framework adapters** — drop-in memory for LangChain, CrewAI, AutoGen.
 
 ---
 
@@ -167,6 +173,8 @@ veritas/
 | `tests/test_deploy_fuzz.py` | 5 cases: hostile journal files, detector totality, missing files | 5/5 |
 | `tests/test_v03.py` | 12 tests: EE2/EE3 dominance, zombie prevention, ground survival, zombie-bridge, Hansson rejection, subscriptions | 12/12 |
 | `tests/test_v04.py` | 22 checks: circular bypass, well-foundedness, Horn AND/OR, EE2 best-proof, commutativity, 4 constraint tests | 22/22 |
+| `tests/test_properties.py` | 7 mathematical invariants: EE2, monotonicity, cache consistency, temporal | 7/7 |
+| `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 |
 | `tests/verify_e2e.sh` | End-to-end: package, demo, dogfood, CLI, persistence, live deployment, publish-clean | 33/33 |
 
 **Bugs found BY testing (not by inspection):** recursive cascade stack
@@ -216,7 +224,9 @@ file, detects contradictions with a journal-domain detector, treats
 (v0.3.0 addressed the first adversarial review: Hansson framing,
 EE2/EE3 caps, ground-observation zombie prevention, invalidation bus.
 v0.4.0 addressed the second: well-foundedness, Horn clauses, detector
-commutativity. v0.5.0 added n-ary constraints and production hardening.)
+commutativity. v0.5.0 added n-ary constraints and production hardening.
+v0.6.0 added async API, entrenchment caching, temporal reasoning.
+v0.7.0 added semantic detector, framework adapters, observability.)
 
 1. "Is the entrenchment formula sound? Does weakest-first contraction
    correctly implement Hansson's non-prioritized base revision?"
