@@ -17,6 +17,7 @@ from .detect import (
     subject_object_parts,
 )
 from .detect_nli import HuggingFaceNLIDetector
+from .detect_semantic import SemanticDetector
 from .entrenchment import (
     corroboration_score,
     entrenchment,
@@ -29,7 +30,7 @@ from .store import BeliefStore
 from .async_store import AsyncBeliefStore
 from .observability import Metrics
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "Belief",
@@ -42,6 +43,7 @@ __all__ = [
     "Detector",
     "HeuristicDetector",
     "HuggingFaceNLIDetector",
+    "SemanticDetector",
     "as_function",
     "functional_parts",
     "subject_object_parts",
