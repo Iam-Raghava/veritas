@@ -175,6 +175,9 @@ class BeliefStore:
             # Entrenchment cache: start fresh (generation 0, empty).
             new._ent_cache = {}
             new._ent_gen = 0
+            # Newer attributes (v0.7+): copy policy, share metrics.
+            new.policy = self.policy
+            new.metrics = self.metrics
         new._lock = threading.RLock()
         return new
 
@@ -218,8 +221,13 @@ class BeliefStore:
         Results are cached per graph generation; the cache is
         invalidated on any mutation (assert/retract).
         """
-        # Cache hit?
-        cached = self._ent_cache.get(belief.id)
+        # Cache hit? Only for beliefs already in the store — newcomers
+        # not yet stored may have their justifications mutated (doomed
+        # pruning) without bumping the generation, which would make
+        # the cache return stale values.
+        cached = None
+        if belief.id in self._beliefs:
+            cached = self._ent_cache.get(belief.id)
         if cached is not None and cached[0] == self._ent_gen:
             if self.metrics is not None:
                 self.metrics.cache_hits += 1
@@ -289,8 +297,9 @@ class BeliefStore:
         result = capped.get(belief.id, entrenchment(
             belief, self.entrenchment_weights,
             n_justifications=len(belief.justifications)))
-        # Cache for this generation.
-        self._ent_cache[belief.id] = (self._ent_gen, result)
+        # Cache for this generation (only if in store — see above).
+        if belief.id in self._beliefs:
+            self._ent_cache[belief.id] = (self._ent_gen, result)
         return result
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
