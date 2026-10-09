@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritas-tms"
-version = "0.8.0"
+version = "0.11.0"
 description = "Truth maintenance for AI agents: automated principled belief retraction"
 readme = "README.md"
 requires-python = ">=3.10"
