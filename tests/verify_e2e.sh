@@ -16,8 +16,8 @@ echo "== 1. package integrity =="
 if python3 -m py_compile veritas/*.py tests/*.py examples/*.py deploy/*.py; then
   ok "all python files compile"
 else bad "compile errors"; fi
-if python3 -c "import sys; sys.path.insert(0,'.'); import veritas; assert veritas.__version__=='0.5.0'"; then
-  ok "package imports, version 0.5.0"
+if python3 -c "import sys; sys.path.insert(0,'.'); import veritas; assert veritas.__version__=='0.7.0'"; then
+  ok "package imports, version 0.7.0"
 else bad "import/version"; fi
 for f in README.md ARTICLE.md SHOW_HN.md docs/prior-art.md pyproject.toml .gitignore; do
   [ -f "$f" ] && ok "doc exists: $f" || bad "missing: $f"
