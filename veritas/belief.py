@@ -89,6 +89,12 @@ class Belief:
     # survives ONLY if grounded: a derived belief cannot outlive its
     # premises (zombie-belief prevention). See store._retract_single.
     ground: bool = False
+    # Temporal validity: when this belief holds. None means unbounded.
+    # Two beliefs only contradict if their validity intervals overlap.
+    # This prevents "was online" (past) from contradicting "is offline"
+    # (now) — a common failure in naive truth maintenance.
+    valid_from: float | None = None
+    valid_until: float | None = None
 
     def __post_init__(self) -> None:
         if not self.proposition or not self.proposition.strip():
@@ -113,6 +119,20 @@ class Belief:
     @property
     def is_active(self) -> bool:
         return self.status == ACTIVE
+
+    def temporally_overlaps(self, other: "Belief") -> bool:
+        """True if validity intervals overlap (or either is unbounded).
+
+        Two beliefs can only contradict if they make claims about
+        overlapping time periods.
+        """
+        # [a_from, a_until] overlaps [b_from, b_until] iff
+        # a_from <= b_until and b_from <= a_until (None = infinity).
+        a_from = self.valid_from if self.valid_from is not None else float("-inf")
+        a_until = self.valid_until if self.valid_until is not None else float("inf")
+        b_from = other.valid_from if other.valid_from is not None else float("-inf")
+        b_until = other.valid_until if other.valid_until is not None else float("inf")
+        return a_from <= b_until and b_from <= a_until
 
     @property
     def all_premise_ids(self) -> list[str]:
