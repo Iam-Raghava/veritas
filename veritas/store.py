@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import functools
 import threading
-from typing import Callable
+from typing import Any, Callable
 
 from .audit import (
     ASSERTED,
@@ -83,21 +83,31 @@ class BeliefStore:
         detector: Detector | None = None,
         entrenchment_weights: dict[str, float] | None = None,
         survival_threshold: float | None = None,
+        metrics: Any | None = None,
     ) -> None:
         self._beliefs: dict[str, Belief] = {}
         self._audit = AuditLog()
+        # Observability: optional Metrics collector (veritas.observability).
+        self.metrics = metrics
         if detector is not None:
-            self.contradiction_fn = as_function(detector)
+            base_fn = as_function(detector)
             self.detector_name = getattr(detector, "name", "custom")
         else:
             raw_fn = contradiction_fn or heuristic_contradiction
             # Always wrap for commutativity (symmetric contradiction).
-            self.contradiction_fn = as_function(raw_fn)
+            base_fn = as_function(raw_fn)
             self.detector_name = (
                 "heuristic"
                 if raw_fn is heuristic_contradiction
                 else "custom"
             )
+        # Temporal filter: beliefs only contradict if their validity
+        # intervals overlap. Prevents "was X" vs "is not X" false positives.
+        def _temporal_contradiction(a: Belief, b: Belief) -> bool:
+            if not a.temporally_overlaps(b):
+                return False
+            return base_fn(a, b)
+        self.contradiction_fn = _temporal_contradiction
         # The index only covers the heuristic detector's patterns
         # (functional properties, is/is-not, explicit pairs). Custom
         # detectors fall back to exact scan — slower but always correct.
@@ -122,6 +132,12 @@ class BeliefStore:
         # joint inconsistencies that pairwise detectors miss (e.g. budget
         # + costs that sum over the budget).
         self._constraints: dict[str, Callable[[list[Belief]], list[str]]] = {}
+        # Entrenchment cache: belief_id -> (generation, value). The
+        # generation bumps on any mutation (assert/retract); cache hits
+        # avoid the O(subgraph) traversal. Correct because entrenchment
+        # is a pure function of the current graph state.
+        self._ent_cache: dict[str, tuple[int, float]] = {}
+        self._ent_gen: int = 0
         # Reentrant lock: the store is safe for concurrent use from
         # multiple threads. RLock because public methods call each other
         # (assert_belief -> contradictors_of -> ...) on the same thread.
@@ -150,6 +166,9 @@ class BeliefStore:
             # original owner's context; do not copy them into the new store.
             new._subscribers = {}
             new._constraints = {}
+            # Entrenchment cache: start fresh (generation 0, empty).
+            new._ent_cache = {}
+            new._ent_gen = 0
         new._lock = threading.RLock()
         return new
 
@@ -189,7 +208,19 @@ class BeliefStore:
         a belief is warranted by its BEST proof, not crippled by a weak
         alternative. Within a set, the weakest premise bounds (AND).
         Transitive via iterative post-order (no recursion limit).
+
+        Results are cached per graph generation; the cache is
+        invalidated on any mutation (assert/retract).
         """
+        # Cache hit?
+        cached = self._ent_cache.get(belief.id)
+        if cached is not None and cached[0] == self._ent_gen:
+            if self.metrics is not None:
+                self.metrics.cache_hits += 1
+            return cached[1]
+        if self.metrics is not None:
+            self.metrics.cache_misses += 1
+
         from .entrenchment import entrenchment
 
         # Iterative post-order traversal: collect all reachable beliefs,
@@ -249,9 +280,12 @@ class BeliefStore:
                 if best_set_strength != float("-inf"):
                     score = min(score, best_set_strength)
             capped[bid] = score
-        return capped.get(belief.id, entrenchment(
+        result = capped.get(belief.id, entrenchment(
             belief, self.entrenchment_weights,
             n_justifications=len(belief.justifications)))
+        # Cache for this generation.
+        self._ent_cache[belief.id] = (self._ent_gen, result)
+        return result
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
         """Snapshots of active beliefs contradicting `belief`."""
@@ -538,6 +572,8 @@ class BeliefStore:
         metadata: dict | None = None,
         timestamp: float | None = None,
         ground: bool = False,
+        valid_from: float | None = None,
+        valid_until: float | None = None,
     ) -> Belief | None:
         """Assert a new belief, contracting contradictors if necessary.
 
@@ -554,6 +590,9 @@ class BeliefStore:
         statement, sensor reading) as opposed to a derived inference.
         A belief that loses all justifications survives ONLY if grounded;
         derived beliefs cannot outlive their premises (zombie prevention).
+
+        valid_from/valid_until: temporal validity interval. Beliefs only
+        contradict if their intervals overlap. None means unbounded.
         """
         from .belief import _normalize_justifications
         from .entrenchment import order_by_entrenchment
@@ -584,6 +623,8 @@ class BeliefStore:
             metadata=dict(metadata or {}),
             timestamp=timestamp or 0.0,
             ground=ground,
+            valid_from=valid_from,
+            valid_until=valid_until,
         )
         new_ent = self.entrenchment_of(new)
 
@@ -768,6 +809,8 @@ class BeliefStore:
             return []
         belief.status = _RETRACTED_STATUS
         self._unindex(belief)
+        # Graph mutated: bump entrenchment cache generation.
+        self._ent_gen += 1
         retracted = [belief]
         self._audit.record(
             RETRACTED,
@@ -896,6 +939,8 @@ class BeliefStore:
         self._beliefs[belief.id] = belief
         if belief.is_active:
             self._index(belief)
+        # Graph mutated: bump entrenchment cache generation.
+        self._ent_gen += 1
 
     @_locked
     def stats(self) -> dict:
