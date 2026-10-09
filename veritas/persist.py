@@ -21,7 +21,7 @@ from .store import BeliefStore
 # versions it cannot understand, rather than misreading them.
 # v3: justifications are Horn clauses (list of AND-sets). v2 DBs with
 # flat justifications are auto-migrated by Belief.__post_init__.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _safe_dumps(obj) -> str:
@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS beliefs (
     timestamp REAL NOT NULL,
     status TEXT NOT NULL,
     metadata TEXT NOT NULL,
-    ground INTEGER NOT NULL DEFAULT 0
+    ground INTEGER NOT NULL DEFAULT 0,
+    valid_from REAL,
+    valid_until REAL
 );
 CREATE TABLE IF NOT EXISTS audit (
     seq INTEGER PRIMARY KEY,
@@ -95,7 +97,7 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
 
         for b in store.all_beliefs():
             conn.execute(
-                "INSERT INTO beliefs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO beliefs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     b.id,
                     b.proposition,
@@ -107,6 +109,8 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
                     b.status,
                     _safe_dumps(b.metadata),
                     1 if b.ground else 0,
+                    b.valid_from,
+                    b.valid_until,
                 ),
             )
         for e in store.audit:
@@ -163,14 +167,24 @@ def load(path: str) -> BeliefStore:
                 "survival_threshold", 0.5),
         )
         store.detector_name = detector_name
-        # v1 -> v2 migration: beliefs table may lack the ground column.
+        # Migrations: beliefs table may lack ground (v1->v2) or temporal
+        # columns (v3->v4).
         cols = [r[1] for r in conn.execute("PRAGMA table_info(beliefs)")]
         has_ground = "ground" in cols
+        has_temporal = "valid_from" in cols
         for r in conn.execute(
             "SELECT id, proposition, confidence, source, source_reliability,"
             " justifications, timestamp, status, metadata"
-            + (", ground" if has_ground else "") + " FROM beliefs"
+            + (", ground" if has_ground else "")
+            + (", valid_from, valid_until" if has_temporal else "")
+            + " FROM beliefs"
         ):
+            idx = 9
+            ground_val = bool(r[idx]) if has_ground else False
+            if has_ground:
+                idx += 1
+            vf = r[idx] if has_temporal else None
+            vu = r[idx + 1] if has_temporal else None
             b = Belief(
                 proposition=r[1],
                 confidence=r[2],
@@ -181,7 +195,9 @@ def load(path: str) -> BeliefStore:
                 timestamp=r[6],
                 status=r[7],
                 metadata=json.loads(r[8]),
-                ground=bool(r[9]) if has_ground else False,
+                ground=ground_val,
+                valid_from=vf,
+                valid_until=vu,
             )
             # Bypass assert_belief: we are restoring, not reasoning.
             store._store(b)
