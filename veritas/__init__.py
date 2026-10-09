@@ -26,12 +26,16 @@ from .entrenchment import (
 )
 from .persist import load, register_detector, save
 from .store import BeliefStore
+from .async_store import AsyncBeliefStore
+from .observability import Metrics
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "Belief",
     "BeliefStore",
+    "AsyncBeliefStore",
+    "Metrics",
     "AuditEvent",
     "AuditLog",
     "ContradictionFn",
