@@ -14,6 +14,15 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 > Before garbage collection, programmers managed memory by hand and drowned in bugs. Agents today manage contradictions by hand and drown in stale beliefs. Veritas is garbage collection for beliefs.
 
+## What's new in v0.7.0
+
+- **Semantic detector**: Embedding-based contradiction detection catches "server is operational" vs "server is down" — beyond pattern matching.
+- **Async API**: `AsyncBeliefStore` for LangChain/CrewAI/AutoGen.
+- **Temporal reasoning**: `valid_from`/`valid_until` — "was X" doesn't contradict "is not X".
+- **Entrenchment caching**: 2800x speedup on repeated queries.
+- **Framework adapters**: Drop-in memory for LangChain, CrewAI, AutoGen.
+- **Observability**: Metrics, cache hit rates, cascade tracking.
+
 ## How it works
 
 ```
