@@ -1,0 +1,9 @@
+# Local deployment artifacts (my journal's live store) — not published.
+deploy/*.db
+deploy/report.md
+__pycache__/
+*.pyc
+# Regenerated test artifacts
+memory.db
+mutants/
+.mutmut-cache
