@@ -84,11 +84,17 @@ class BeliefStore:
         entrenchment_weights: dict[str, float] | None = None,
         survival_threshold: float | None = None,
         metrics: Any | None = None,
+        policy: str = "entrenchment",
     ) -> None:
+        from .policies import POLICIES
+        if policy not in POLICIES:
+            raise ValueError(f"policy must be one of {POLICIES}")
         self._beliefs: dict[str, Belief] = {}
         self._audit = AuditLog()
         # Observability: optional Metrics collector (veritas.observability).
         self.metrics = metrics
+        # Contraction policy: entrenchment (default), maxichoice, conservative.
+        self.policy = policy
         if detector is not None:
             base_fn = as_function(detector)
             self.detector_name = getattr(detector, "name", "custom")
@@ -629,6 +635,19 @@ class BeliefStore:
         new_ent = self.entrenchment_of(new)
 
         contradictors = self.contradictors_of(new)
+
+        # Conservative policy: reject newcomer if any contradiction.
+        if self.policy == "conservative" and contradictors:
+            self._audit.record(
+                REJECTED,
+                new.id,
+                new.proposition,
+                f"rejected by conservative policy: "
+                f"{len(contradictors)} contradictor(s)",
+                {"entrenchment": new_ent,
+                 "contradictor_ids": [b.id for b in contradictors]},
+            )
+            return None
 
         if not contradictors:
             self._store(new)
