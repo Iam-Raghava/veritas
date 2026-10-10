@@ -39,8 +39,8 @@ else bad "ordering proof"; tail -3 /tmp/vt4.log; fi
 if python3 tests/test_robust.py > /tmp/vt5.log 2>&1 && grep -q "10 passed, 0 failed" /tmp/vt5.log; then
   ok "robustness 10/10"
 else bad "robustness"; tail -3 /tmp/vt5.log; fi
-if python3 tests/test_readme.py > /tmp/vt6.log 2>&1 && grep -q "2/2 README blocks run" /tmp/vt6.log; then
-  ok "README doctest 2/2"
+if python3 tests/test_readme.py > /tmp/vt6.log 2>&1 && grep -q "3/3 README blocks run" /tmp/vt6.log; then
+  ok "README doctest 3/3"
 else bad "README doctest"; tail -3 /tmp/vt6.log; fi
 if python3 tests/test_determinism.py > /tmp/vt7.log 2>&1 && grep -q "DETERMINISTIC" /tmp/vt7.log; then
   ok "determinism"
