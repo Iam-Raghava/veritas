@@ -1,0 +1,312 @@
+Metadata-Version: 2.4
+Name: veritas-tms
+Version: 0.11.0
+Summary: Truth maintenance for AI agents: automated principled belief retraction
+Author: RAGS
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/Iam-Raghava/veritas
+Keywords: ai,agents,memory,belief-revision,truth-maintenance
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: nli
+Requires-Dist: transformers>=4.40; extra == "nli"
+Requires-Dist: torch>=2.0; extra == "nli"
+Dynamic: license-file
+
+# Veritas — Truth Maintenance for AI Agents
+
+**Your agent's memory is rotting. Veritas fixes it.**
+
+```python
+from veritas import BeliefStore
+
+store = BeliefStore()
+store.assert_belief("CEO is Alice", source="board_meeting", source_reliability=0.95, ground=True)
+store.assert_belief("CEO is Bob", source="twitter_rumor", source_reliability=0.2)
+# → "CEO is Bob" rejected. Alice stays. Audited. Deterministic.
+```
+
+Every long-lived agent accumulates contradictions. A CEO changes, a deadline moves, an assumption proves false — and the agent's memory quietly rots. Today's systems handle this three ways, all broken:
+
+| Approach | Problem |
+|---|---|
+| **Latest wins** | A rumor overwrites a verified fact. Recency ≠ truth. |
+| **Manual review** | Doesn't scale; nobody reviews 10,000 beliefs. |
+| **LLM shrug** | Ask the model per-case, get an unprincipled, unaudited, expensive guess. |
+
+Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction in → entrenchment-ordered contraction → dependency propagation → audit trail out. No black box in the retraction decision.
+
+> Before garbage collection, programmers managed memory by hand and drowned in bugs. Agents today manage contradictions by hand and drown in stale beliefs. Veritas is garbage collection for beliefs.
+
+**Works with any model** — Claude 5.5, GPT-6, Gemini 4, Llama, whatever's next. Veritas operates at the memory layer, not the model layer. The models change; the need for truth maintenance doesn't.
+
+## What's new in v0.11.0
+
+- **LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
+- **Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
+- **Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
+- **Explanations**: `why_retracted()` answers "why did my agent forget X?"
+- **Scale**: 100k beliefs at 15k/sec, sub-millisecond queries.
+
+## How it works
+
+```
+new evidence arrives
+       │
+       ▼
+┌──────────────┐
+│  DETECT      │  pluggable contradiction detector
+│  conflicts?  │  (ships with a transparent heuristic)
+└──────┬───────┘
+       │ yes
+       ▼
+┌──────────────┐
+│  CONTRACT    │  order contradictors by entrenchment (weakest first);
+│ (Hansson)  │  retract until consistent. If the newcomer is weaker
+│              │  than ANY contradictor, it is REJECTED — the store
+│              │  refuses to corrupt itself.
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│  PROPAGATE   │  JTMS-style: every belief records its justifications.
+│  (JTMS-style)│  Retracted belief → dependents re-evaluated →
+│              │  orphaned beliefs cascade unless they stand alone.
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│  AUDIT       │  every assertion, retraction, cascade, and rejection
+│              │  recorded with its reason. Replayable.
+└──────────────┘
+```
+
+**Entrenchment** (higher = harder to retract) is a transparent weighted score:
+
+```
+entrenchment = 0.40 × source_reliability
+             + 0.25 × corroboration (log-scaled justification count)
+             + 0.20 × confidence
+             + 0.15 × recency (30-day half-life)
+```
+
+No single factor dominates; a fresh rumor can't beat an old verified fact, and a verified fact can't beat a fresher verified fact.
+
+## Quick start
+
+```python
+from veritas import BeliefStore
+
+store = BeliefStore()
+
+ceo = store.assert_belief("Acme's CEO is Jane Smith",
+                          source="tech blog", source_reliability=0.65)
+store.assert_belief("Jane Smith founded Acme in 2020",
+                    source="derived", source_reliability=0.4,
+                    justifications=[ceo.id])
+store.assert_belief("Acme's HQ is Austin",
+                    source="company website", source_reliability=0.9)
+
+# Press release arrives: the CEO changed.
+store.assert_belief("Acme's CEO is John Doe",
+                    source="official press release", source_reliability=0.97)
+
+# → "Jane Smith is CEO" retracted (outranked)
+# → "Jane founded Acme" CASCADE-retracted (lost its justification)
+# → "HQ is Austin" survives (independent)
+# → store.is_consistent() == True, full audit trail available
+
+for e in store.audit:
+    print(e.event_type, "|", e.proposition, "|", e.reason)
+```
+
+Run the full demonstration: `python3 examples/demo.py`
+Watch Veritas audit its creator's own memory: `python3 examples/dogfood.py`
+
+## Testing
+
+Tested like infrastructure, not a demo:
+
+| Suite | What it does | Status |
+|---|---|---|
+| `tests/run.py` | 40 core unit tests (contraction, cascades, audit) | 40/40 pass |
+| `tests/test_v02.py` | 23 persistence/CLI/detector/index tests | 23/23 pass |
+| `tests/test_edge.py` | 11 adversarial cases (cycles, 5000-deep chains, hostile detectors, 50-way contradiction storms) | 11/11 pass |
+| `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 pass |
+| `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
+| `tests/test_readme.py` | Every README code block runs | 3/3 pass |
+| `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
+| `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
+| `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
+| `tests/test_mutation.py` | 7 targeted mutants (decision rules, cascade, pruning) | 7/7 killed |
+| `tests/test_adversarial.py` | 14 adversarial cases: corrupt DBs, future/legacy schemas, 10k fan-out cascade, hostile detectors, clock skew, concurrent CLI, unserializable metadata, snapshot isolation, deepcopy | 14/14 pass |
+| `tests/test_deploy_fuzz.py` | 5 deployment fuzz cases: hostile journal files, detector totality | 5/5 pass |
+| `tests/fuzz.py` | Property-based fuzzer: 17,000+ random ops, 5 seeds, 5 invariants checked after every op | all held |
+| `tests/test_persist_fuzz.py` | 30 random SQLite round-trips verified byte-identical | 30/30 pass |
+| `tests/test_soak.py` | 100k ops: linear scaling, no leaks | clean |
+| `tests/test_stress.py` | 8-thread concurrency + 100k-belief scale | all pass |
+| `tests/test_v03.py` | 12 formal rigor tests (EE2/EE3, zombie prevention, Hansson) | 12/12 pass |
+| `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
+| `tests/test_properties.py` | 7 mathematical invariant proofs | 7/7 pass |
+| `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 pass |
+| `tests/verify_e2e.sh` | 33 end-to-end checks (package, CLI, deployment, publish-clean) | 33/33 pass |
+
+The fuzzer and edge cases found and fixed 4 real bugs: dead
+justifications accepted at assert time, duplicate justifications leaving
+dangling references, stack overflow on deep cascades (now iterative), and a
+thread-safety race (store is now fully locked). The store is safe for
+concurrent use from multiple threads.
+
+## Persistence & CLI
+
+Stores survive restarts via SQLite:
+
+```python
+from veritas import BeliefStore, save, load
+
+store = BeliefStore()
+store.assert_belief("Acme's CEO is Jane Smith", source="blog", source_reliability=0.6)
+save(store, "memory.db")
+
+store2 = load("memory.db")  # beliefs, audit log, config — all restored
+```
+
+Or use the command line — every command is audited like programmatic use:
+
+```
+veritas init
+veritas assert "Acme's CEO is Jane Smith" --source "tech blog" --reliability 0.65
+veritas assert "Acme's CEO is John Doe" --source "press release" --reliability 0.97
+# → contracted 1 belief(s): Acme's CEO is Jane Smith (contradicted...)
+veritas list
+veritas contradictions
+veritas audit
+veritas stats
+```
+
+## Detectors
+
+Contradiction detection is a plugin interface (`veritas.Detector`):
+
+- **Heuristic** (default) — transparent, no model. Functional-property
+  conflicts ("X's CEO is A" vs "X's CEO is B"), direct negation
+  ("S is O" vs "S is not O", "S will O" vs "S will not O"), and explicit
+  `metadata["contradicts"]` pairs.
+- **NLI** (`veritas.HuggingFaceNLIDetector`, requires `pip install veritas-tms[nli]`) —
+  production-grade detection via natural language inference, both directions,
+  configurable threshold. Verified against real `roberta-large-mnli` weights:
+  4/4 test pairs correct, drives store contraction end-to-end.
+- **Custom** — implement `contradicts(a, b) -> bool`, pass as `detector=` or
+  `contradiction_fn=`. Register named detectors with
+  `veritas.register_detector` so persisted stores resolve them on load.
+
+Contradiction search is indexed, not quadratic: claims are indexed by
+(subject, relation) and (subject, object), so assertion cost scales with
+candidate contradictors, not store size.
+
+## Benchmarks
+
+Measured on 10,000 synthetic beliefs (single thread, no GPU):
+
+| Operation | Result |
+|---|---|
+| Bulk insert | ~58,000 beliefs/sec (17 µs/belief) |
+| `contradictors_of()` (hot path) | ~80 µs per new belief |
+| `find_contradictions()` over 10k | 0.87 s (29k pairs found) |
+| `assert_belief()` with contraction | ~15,800/sec |
+| Memory | ~2.6 KB per belief |
+
+Indexed search is **433× faster** than brute force at n=1,000 (verified
+identical results). Run them yourself: `python3 examples/benchmark.py`.
+
+## Theory
+
+Veritas implements two classical ideas, combined as a working system for LLM agent memory:
+
+- **Hansson's non-prioritized belief base revision** (Sven Ove Hansson):
+  contraction is entrenchment-ordered and minimal — give up as little as
+  possible, weakest first. Unlike classical AGM (which requires accepting
+  every input via the Success postulate), Veritas *screens* newcomers:
+  a weaker belief is rejected rather than corrupting stronger incumbents.
+  This is the correct formal framework for noisy agent environments.
+  Entrenchment respects Gärdenfors–Makinson EE2 (dominance) and EE3:
+  a derived belief is capped at its weakest premise.
+- **JTMS** (Doyle 1979): beliefs carry justifications; retraction propagates
+  through the dependency network automatically. Orphaned beliefs survive
+  only if grounded in direct observation — derived beliefs cannot outlive
+  their premises (zombie-belief prevention).
+
+As of October 2026, Veritas is the first standalone, general-purpose,
+fully audited belief-base revision engine with automated
+entrenchment-based contraction and dependency cascades for Python agent
+runtimes. (See `docs/` for the prior-art survey, including yigraf, which
+tracks justifications but resolves conflicts manually rather than by
+automated entrenchment ordering.)
+
+## Design principles
+
+1. **The retraction decision is deterministic.** Detectors are pluggable (bring your own NLI model), but given a contradiction, *which belief goes* is computed, not guessed.
+2. **Nothing disappears silently.** The audit log is append-only and records reasons, not just events.
+3. **Derived beliefs are second-class.** A belief standing only on retracted justifications falls too — unless its independent source is strong enough to hold it up.
+4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
+
+## Status
+
+v0.7.0 — semantic + async + temporal:
+- SemanticDetector: embedding-based contradiction detection (antonyms,
+  semantic opposition beyond patterns).
+- AsyncBeliefStore: asyncio API for modern agent frameworks.
+- Temporal reasoning: valid_from/valid_until; non-overlapping beliefs
+  don't contradict.
+- Framework adapters: LangChain, CrewAI, AutoGen.
+- Observability: Metrics with cache hit rates, latencies.
+- 7/7 property tests, 3/3 benchmarks. Mypy clean (16 files).
+
+v0.6.0 — async + caching + temporal (internal):
+- AsyncBeliefStore, entrenchment caching (2800x speedup),
+  temporal validity intervals.
+
+v0.5.0 — n-ary constraints + production hardening:
+- Constraint system: `add_constraint(name, check_fn)` for joint
+  inconsistencies that pairwise detectors miss (e.g. budget violations).
+  Weakest involved beliefs retracted in entrenchment order.
+- Mypy clean (9 files, 0 errors). Empty proposition validation.
+- 22/22 v0.4 tests (incl. 4 constraint tests).
+
+v0.4.0 — well-foundedness + Horn clauses:
+- Circular bypass fix: cascade checks for directed path to ground
+  (Doyle well-foundedness); A↔B loops with no ground retract.
+- Horn-clause justifications: list of AND-sets (OR across sets).
+  Corroboration across independent derivations; EE2 caps by best proof.
+- Detector commutativity harness: contradicts(A,B) = D(A,B) ∨ D(B,A).
+- 14/14 v0.4 tests.
+
+v0.3.0 — formal rigor + zombie prevention:
+- Reframed as Hansson's non-prioritized belief base revision (not AGM).
+- EE2/EE3 dominance: derived entrenchment capped at weakest premise.
+- Ground observations: orphaned beliefs survive only if grounded;
+  derived beliefs cannot outlive their premises.
+- Invalidation bus: `store.subscribe()` for retraction events.
+- 12/12 v0.3 tests.
+
+v0.2.0 — core engine + production surface:
+- Truth maintenance core: belief model, entrenchment, Hansson-style contraction,
+  JTMS-style propagation, append-only audit. 40/40 core tests passing.
+- SQLite persistence (beliefs, audit log, config round-trip). 23/23 v0.2 tests.
+- Pluggable detectors: transparent heuristic (default), HuggingFace NLI
+  (optional), custom via `Detector` protocol.
+- Indexed contradiction search (sub-quadratic).
+- Full CLI (`veritas init/assert/retract/list/contradictions/audit/stats`).
+- Dogfood: Veritas audits its creator's own memory (`examples/dogfood.py`).
+
+Roadmap: multi-agent shared stores, formal verification of contraction
+properties, hosted demo.
+
+## License
+
+MIT — use it, fork it, hire us.
