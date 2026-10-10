@@ -10,8 +10,23 @@ cascades happen automatically); `Search` returns only **active** beliefs as
 evidence, so the evaluation platform never sees retracted or stale context.
 That is the "memory governance" the track scores.
 
-Model-free by design: the heuristic contradiction detector and TF-IDF
-retrieval need no embeddings and no LLM calls.
+**Retrieval is hybrid** (dense + TF-IDF with RRF fusion): local ONNX
+embeddings catch paraphrases and cross-lingual matches ("CEO" ~
+"首席执行官"); CJK-aware TF-IDF handles exact terms. No API costs.
+**Detection is selectable**: heuristic (default, transparent),
+NLI (`VERITAS_DETECTOR=nli`, roberta-large-mnli), or LLM judge
+(`VERITAS_DETECTOR=llm`). The governance engine — entrenchment-ordered
+contraction, cascades, audit — is identical regardless.
+
+## Configuration
+
+| Env var | Default | Options |
+|---|---|---|
+| `VERITAS_DB` | `./aml/veritas_aml.db` | persistent path |
+| `VERITAS_RETRIEVAL` | `hybrid` | `hybrid` (dense+TF-IDF) or `tfidf` |
+| `VERITAS_DETECTOR` | `heuristic` | `heuristic`, `nli`, `llm` |
+| `VERITAS_DENSE_MODEL` | `jinaai/jina-embeddings-v2-small-en` | any fastembed model |
+| `VERITAS_LLM_API_KEY` / `_MODEL` / `_API_BASE` | — | for `llm` detector |
 
 ## Run locally
 
