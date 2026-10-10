@@ -158,6 +158,8 @@ Tested like infrastructure, not a demo:
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
 | `tests/test_readme.py` | Every README code block runs | 3/3 pass |
 | `tests/test_readme_sync.py` | README version/exports/test-files/changelog match code | 58/58 pass |
+| `tests/test_release_gate.py` | Pre-release: load, soak, chaos, API contract | 13/13 pass |
+| `tests/test_hybrid_retrieval.py` | CJK tokenizer, hybrid dense+TF-IDF, RRF | 12/12 pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
@@ -167,7 +169,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
 | `tests/test_properties.py` | 7 mathematical invariant proofs | 7/7 pass |
 | `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 pass |
-| `tests/verify_e2e.sh` | 30 end-to-end checks (package, CLI, deployment, publish-clean) | 30/30 pass |
+| `tests/verify_e2e.sh` | 33 end-to-end checks (package, CLI, deployment, publish-clean) | 33/33 pass |
 
 The fuzzer and edge cases found and fixed 4 real bugs: dead
 justifications accepted at assert time, duplicate justifications leaving
