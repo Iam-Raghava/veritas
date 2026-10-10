@@ -1,8 +1,8 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
-# Hybrid retrieval (dense embeddings, local ONNX, no API costs).
-# Optional: without these, VERITAS_RETRIEVAL=tfidf falls back cleanly.
-fastembed>=0.9.0
+# Hybrid retrieval: dense embeddings via ONNX (no torch, no API costs).
+onnxruntime>=1.17
+tokenizers>=0.19
 numpy>=1.24
 # NLI detector (optional, VERITAS_DETECTOR=nli). Heavy (~1.4GB model);
 # omit for lean deployments.
