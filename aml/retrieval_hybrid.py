@@ -38,8 +38,21 @@ class HybridRetriever:
         self._dense_ids: list[str] = []
         self._dense_vecs = None
         self._dense_gen: int = -1
+        self._reranker = None
         if RETRIEVAL_MODE == "hybrid":
             self._init_dense()
+            self._init_reranker()
+
+    def _init_reranker(self) -> None:
+        try:
+            from rerank import Reranker
+        except ImportError:
+            from aml.rerank import Reranker
+        self._reranker = Reranker.load()
+
+    @property
+    def rerank_active(self) -> bool:
+        return self._reranker is not None
 
     def _init_dense(self) -> None:
         try:
@@ -146,6 +159,24 @@ class HybridRetriever:
                     "confidence": b.confidence,
                 }
         ranked = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+
+        # Cross-encoder rerank: rescore top candidates for precision.
+        fusion = "rrf"
+        if self._reranker is not None and ranked:
+            try:
+                from rerank import RERANK_TOPK
+            except ImportError:
+                from aml.rerank import RERANK_TOPK
+            cands = [t for t, _ in ranked[:RERANK_TOPK]]
+            try:
+                scores = self._reranker.score(query, cands)
+                rescored = sorted(zip(cands, scores),
+                                  key=lambda kv: -kv[1])
+                ranked = [(t, float(s)) for t, s in rescored] + ranked[RERANK_TOPK:]
+                fusion = "rrf+rerank"
+            except Exception as e:
+                print(f"[hybrid] rerank failed ({e}); RRF ranking kept")
+
         out = []
         for text, fscore in ranked[:top_k]:
             h = text_to_hit.get(text)
@@ -165,6 +196,6 @@ class HybridRetriever:
                         continue
             h = dict(h)
             h["score"] = round(fscore, 4)
-            h["fusion"] = "rrf"
+            h["fusion"] = fusion
             out.append(h)
         return out
