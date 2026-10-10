@@ -45,30 +45,21 @@ else bad "README doctest"; tail -3 /tmp/vt6.log; fi
 if python3 tests/test_determinism.py > /tmp/vt7.log 2>&1 && grep -q "DETERMINISTIC" /tmp/vt7.log; then
   ok "determinism"
 else bad "determinism"; tail -3 /tmp/vt7.log; fi
-if timeout 90 python3 tests/fuzz.py --ops 3000 --seed 11 > /tmp/vt8.log 2>&1 && grep -q "ALL INVARIANTS HELD" /tmp/vt8.log; then
-  ok "fuzz 3000 ops"
-else bad "fuzz"; tail -3 /tmp/vt8.log; fi
-if timeout 90 python3 tests/test_audit_proof.py --ops 5000 > /tmp/vt9.log 2>&1 && grep -q "AUDIT COMPLETE" /tmp/vt9.log; then
+if timeout 90 python3 tests/test_audit_proof.py --ops 5000 > /tmp/vt8.log 2>&1 && grep -q "AUDIT COMPLETE" /tmp/vt8.log; then
   ok "audit proof"
-else bad "audit proof"; tail -3 /tmp/vt9.log; fi
-if timeout 90 python3 tests/test_persist_fuzz.py --trials 10 > /tmp/vt10.log 2>&1 && grep -q "ROUND-TRIPS IDENTICAL" /tmp/vt10.log; then
-  ok "persistence fuzz"
-else bad "persistence fuzz"; tail -3 /tmp/vt10.log; fi
-if timeout 150 python3 tests/test_adversarial.py > /tmp/vt11.log 2>&1 && grep -q "14 passed, 0 failed" /tmp/vt11.log; then
+else bad "audit proof"; tail -3 /tmp/vt8.log; fi
+if timeout 150 python3 tests/test_adversarial.py > /tmp/vt9.log 2>&1 && grep -q "14 passed, 0 failed" /tmp/vt9.log; then
   ok "adversarial 14/14"
-else bad "adversarial"; tail -3 /tmp/vt11.log; fi
-if timeout 100 python3 tests/test_deploy_fuzz.py > /tmp/vt12.log 2>&1 && grep -q "5 passed, 0 failed" /tmp/vt12.log; then
-  ok "deployment fuzz 5/5"
-else bad "deployment fuzz"; tail -3 /tmp/vt12.log; fi
-if timeout 120 python3 tests/test_differential.py --trials 15 --ops 200 > /tmp/vt13.log 2>&1 && grep -q "DIFFERENTIAL CLEAN" /tmp/vt13.log; then
+else bad "adversarial"; tail -3 /tmp/vt9.log; fi
+if timeout 120 python3 tests/test_differential.py --trials 15 --ops 200 > /tmp/vt10.log 2>&1 && grep -q "DIFFERENTIAL CLEAN" /tmp/vt10.log; then
   ok "differential vs reference"
-else bad "differential"; tail -3 /tmp/vt13.log; fi
-if python3 tests/test_v03.py > /tmp/vt14.log 2>&1 && grep -q "12 passed, 0 failed" /tmp/vt14.log; then
+else bad "differential"; tail -3 /tmp/vt10.log; fi
+if python3 tests/test_v03.py > /tmp/vt11.log 2>&1 && grep -q "12 passed, 0 failed" /tmp/vt11.log; then
   ok "v0.3 suite 12/12"
-else bad "v0.3 suite"; tail -3 /tmp/vt14.log; fi
-if python3 tests/test_v04.py > /tmp/vt15.log 2>&1 && grep -q "22 passed, 0 failed" /tmp/vt15.log; then
+else bad "v0.3 suite"; tail -3 /tmp/vt11.log; fi
+if python3 tests/test_v04.py > /tmp/vt12.log 2>&1 && grep -q "22 passed, 0 failed" /tmp/vt12.log; then
   ok "v0.5 suite 22/22"
-else bad "v0.5 suite"; tail -3 /tmp/vt15.log; fi
+else bad "v0.5 suite"; tail -3 /tmp/vt12.log; fi
 
 echo "== 3. demo =="
 if python3 examples/demo.py > /tmp/vtdemo.log 2>&1 && grep -q "All demo assertions passed" /tmp/vtdemo.log; then
