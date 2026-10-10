@@ -81,7 +81,7 @@ class Belief:
     # generators are looked up dynamically and remain patchable for
     # deterministic testing.
     id: str = field(default="")
-    timestamp: float = field(default=0.0)
+    timestamp: float | None = field(default=None)
     status: str = ACTIVE
     metadata: dict = field(default_factory=dict)
     # Ground observations (tool output, user statements, sensor readings)
@@ -105,7 +105,7 @@ class Belief:
             raise ValueError("source_reliability must be in [0, 1]")
         if not self.id:
             self.id = _new_id()
-        if not self.timestamp:
+        if self.timestamp is None:
             self.timestamp = time.time()
         # Normalize justifications to Horn clauses (list of AND-sets).
         # A flat list of strings becomes a single AND-set.
