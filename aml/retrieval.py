@@ -17,9 +17,33 @@ from veritas.store import BeliefStore
 
 _WORD = re.compile(r"[a-z0-9]+")
 
+# CJK character ranges: tokenize as character bigrams (no word
+# boundaries in Chinese/Japanese/Korean running text).
+_CJK = re.compile(
+    "["
+    "\u4e00-\u9fff"      # CJK Unified Ideographs
+    "\u3400-\u4dbf"      # CJK Extension A
+    "\u3040-\u30ff"      # Hiragana + Katakana
+    "\uac00-\ud7af"      # Hangul syllables
+    "]"
+)
+
 
 def _tokens(text: str) -> list[str]:
-    return _WORD.findall(text.lower())
+    """Tokenize for TF-IDF: alphanumeric words + CJK character bigrams.
+
+    Chinese/Japanese/Korean have no spaces; character bigrams give
+    lexical overlap where word segmentation is unavailable.
+    """
+    lowered = text.lower()
+    toks = _WORD.findall(lowered)
+    # CJK bigrams: sliding window over consecutive CJK chars.
+    cjk_chars = _CJK.findall(lowered)
+    toks.extend(
+        "cjk:" + cjk_chars[i] + cjk_chars[i + 1]
+        for i in range(len(cjk_chars) - 1)
+    )
+    return toks
 
 
 class BeliefRetriever:
