@@ -125,16 +125,11 @@ Tested like infrastructure, not a demo:
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
 | `tests/test_mutation.py` | 7 targeted mutants (decision rules, cascade, pruning) | 7/7 killed |
 | `tests/test_adversarial.py` | 14 adversarial cases: corrupt DBs, future/legacy schemas, 10k fan-out cascade, hostile detectors, clock skew, concurrent CLI, unserializable metadata, snapshot isolation, deepcopy | 14/14 pass |
-| `tests/test_deploy_fuzz.py` | 5 deployment fuzz cases: hostile journal files, detector totality | 5/5 pass |
-| `tests/fuzz.py` | Property-based fuzzer: 17,000+ random ops, 5 seeds, 5 invariants checked after every op | all held |
-| `tests/test_persist_fuzz.py` | 30 random SQLite round-trips verified byte-identical | 30/30 pass |
-| `tests/test_soak.py` | 100k ops: linear scaling, no leaks | clean |
-| `tests/test_stress.py` | 8-thread concurrency + 100k-belief scale | all pass |
 | `tests/test_v03.py` | 12 formal rigor tests (EE2/EE3, zombie prevention, Hansson) | 12/12 pass |
 | `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
 | `tests/test_properties.py` | 7 mathematical invariant proofs | 7/7 pass |
 | `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 pass |
-| `tests/verify_e2e.sh` | 33 end-to-end checks (package, CLI, deployment, publish-clean) | 33/33 pass |
+| `tests/verify_e2e.sh` | 30 end-to-end checks (package, CLI, deployment, publish-clean) | 30/30 pass |
 
 The fuzzer and edge cases found and fixed 4 real bugs: dead
 justifications accepted at assert time, duplicate justifications leaving
