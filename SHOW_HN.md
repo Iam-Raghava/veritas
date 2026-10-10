@@ -38,7 +38,7 @@ head-to-head benchmarks vs naive latest-wins baselines.
 Verified hard: 40 core tests, 14 adversarial cases (corrupt DBs, 10k fan-out
 cascades, hostile detectors, clock skew), differential testing vs a naive
 reference implementation (every decision identical), property-based fuzzing
-(17k+ ops), mutation testing (7/7 mutants killed), 33/33 end-to-end gate.
+(17k+ ops), mutation testing (7/7 mutants killed), 30/30 end-to-end gate.
 The test process caught real bugs, including a cache staleness issue that
 would have caused wrong retraction decisions in production.
 
