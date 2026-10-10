@@ -14,6 +14,7 @@ ASSERTED = "asserted"
 RETRACTED = "retracted"
 CASCADE_RETRACTED = "cascade_retracted"
 REJECTED = "rejected"
+CONSTRAINT_ERROR = "constraint_error"
 
 
 @dataclass
