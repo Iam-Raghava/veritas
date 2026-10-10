@@ -170,7 +170,7 @@ veritas/
 | `tests/test_v04.py` | 22 checks: circular bypass, well-foundedness, Horn AND/OR, EE2 best-proof, commutativity, 4 constraint tests | 22/22 |
 | `tests/test_properties.py` | 7 mathematical invariants: EE2, monotonicity, cache consistency, temporal | 7/7 |
 | `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 |
-| `tests/verify_e2e.sh` | End-to-end: package, demo, dogfood, CLI, persistence, live deployment, publish-clean | 30/30 |
+| `tests/verify_e2e.sh` | End-to-end: package, demo, dogfood, CLI, persistence, live deployment, publish-clean | 33/33 |
 
 **Bugs found BY testing (not by inspection):** recursive cascade stack
 overflow → iterative; concurrent dict mutation → RLock; dead justifications
