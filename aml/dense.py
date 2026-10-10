@@ -31,6 +31,8 @@ class DenseEmbedder:
             os.path.join(model_dir, "model.onnx"),
             providers=["CPUExecutionProvider"],
         )
+        # Adapt to model inputs (some want token_type_ids, some don't).
+        self._input_names = {i.name for i in self._sess.get_inputs()}
         # Warm up + report dims.
         probe = self.embed(["probe"])
         self.dims = probe.shape[1]
@@ -42,12 +44,10 @@ class DenseEmbedder:
         enc = self._tok.encode_batch(texts)
         ids = np.array([e.ids for e in enc], dtype=np.int64)
         mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
-        tids = np.zeros_like(ids)
-        out = self._sess.run(
-            None,
-            {"input_ids": ids, "attention_mask": mask,
-             "token_type_ids": tids},
-        )[0]
+        feed = {"input_ids": ids, "attention_mask": mask}
+        if "token_type_ids" in self._input_names:
+            feed["token_type_ids"] = np.zeros_like(ids)
+        out = self._sess.run(None, feed)[0]
         m = mask[:, :, None].astype(np.float32)
         emb = (out * m).sum(axis=1) / m.sum(axis=1).clip(min=1e-9)
         return emb / np.linalg.norm(emb, axis=1, keepdims=True)
