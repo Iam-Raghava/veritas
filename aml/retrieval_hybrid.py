@@ -99,6 +99,35 @@ class HybridRetriever:
         if self.store.generation != self._dense_gen:
             self._rebuild_dense()
 
+    def _expand_query(self, query: str, top_docs: int = 3,
+                      max_terms: int = 5) -> str:
+        """Pseudo-relevance feedback: expand query with distinctive terms
+        from top TF-IDF hits. Helps when the query uses different words
+        than the documents ("CEO" vs "chief executive")."""
+        from collections import Counter
+
+        try:
+            from retrieval import _tokens as _tok
+        except ImportError:
+            from aml.retrieval import _tokens as _tok
+
+        hits = self.tfidf.search(query, top_k=top_docs)
+        if not hits:
+            return query
+        query_toks = set(_tok(query))
+        term_scores: Counter = Counter()
+        for h in hits:
+            for tok in _tok(h["text"]):
+                if tok not in query_toks and not tok.startswith("cjk:"):
+                    # Weight by TF-IDF score of the doc it came from.
+                    term_scores[tok] += h["score"]
+        # Take top distinctive terms.
+        extra = [t for t, _ in term_scores.most_common(max_terms)
+                 if len(t) > 2]
+        if extra:
+            return query + " " + " ".join(extra)
+        return query
+
     def _dense_search(self, query: str, top_k: int) -> list[tuple[str, float]]:
         """Return [(belief_id, cosine)] ranked."""
         import numpy as np
@@ -119,17 +148,24 @@ class HybridRetriever:
         top_k: int = 5,
         as_of: float | None = None,
     ) -> list[dict]:
-        """Hybrid search with RRF fusion.
+        """Hybrid search with RRF fusion + rerank.
 
         as_of: temporal filter applied after fusion.
         Returns evidence dicts (same shape as BeliefRetriever.search).
         """
+        # Query expansion via pseudo-relevance feedback (helps vocabulary
+        # mismatch). Disabled via VERITAS_EXPAND=0.
+        search_query = query
+        if os.environ.get("VERITAS_EXPAND", "1") == "1":
+            search_query = self._expand_query(query)
+
         # TF-IDF ranking (over-fetch for fusion).
-        tfidf_hits = self.tfidf.search(query, top_k=top_k * 3, as_of=None)
+        tfidf_hits = self.tfidf.search(search_query, top_k=top_k * 3,
+                                       as_of=None)
         tfidf_rank = {h["text"]: i for i, h in enumerate(tfidf_hits)}
 
         # Dense ranking.
-        dense_hits = self._dense_search(query, top_k * 3)
+        dense_hits = self._dense_search(search_query, top_k * 3)
         by_id = {b.id: b for b in self.store.active_beliefs()}
         dense_rank = {}
         for i, (did, _sim) in enumerate(dense_hits):
@@ -178,10 +214,16 @@ class HybridRetriever:
                 print(f"[hybrid] rerank failed ({e}); RRF ranking kept")
 
         out = []
-        for text, fscore in ranked[:top_k]:
+        seen_texts: set[str] = set()
+        for text, fscore in ranked[:top_k * 2]:  # over-fetch for dedup
             h = text_to_hit.get(text)
             if h is None:
                 continue
+            # Deduplicate near-identical texts.
+            norm = text.lower().strip()
+            if norm in seen_texts:
+                continue
+            seen_texts.add(norm)
             if as_of is not None:
                 b = next(
                     (x for x in by_id.values() if x.proposition == text),
@@ -198,4 +240,6 @@ class HybridRetriever:
             h["score"] = round(fscore, 4)
             h["fusion"] = fusion
             out.append(h)
+            if len(out) >= top_k:
+                break
         return out
