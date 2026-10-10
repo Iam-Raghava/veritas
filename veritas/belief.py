@@ -166,6 +166,8 @@ class Belief:
             status=self.status,
             metadata=dict(self.metadata),
             ground=self.ground,
+            valid_from=self.valid_from,
+            valid_until=self.valid_until,
         )
 
     def to_dict(self) -> dict:
@@ -180,6 +182,8 @@ class Belief:
             "status": self.status,
             "metadata": dict(self.metadata),
             "ground": self.ground,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
         }
 
     @classmethod
@@ -195,4 +199,6 @@ class Belief:
             status=d.get("status", ACTIVE),
             metadata=d.get("metadata", {}),
             ground=d.get("ground", False),
+            valid_from=d.get("valid_from"),
+            valid_until=d.get("valid_until"),
         )
