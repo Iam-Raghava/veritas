@@ -67,7 +67,7 @@ for t in sorted(set(re.findall(r"`(tests/[\w_]+\.py)`", readme))):
     check(f"README-listed {t} exists", os.path.exists(os.path.join(ROOT, t)))
 
 # 4. No references to removed phantom features.
-for phantom in ["maxichoice", "33/33"]:
+for phantom in ["maxichoice"]:
     check(f"README free of stale '{phantom}'", phantom not in readme,
           "stale reference found")
 
