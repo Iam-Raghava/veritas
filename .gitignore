@@ -7,3 +7,6 @@ __pycache__/
 memory.db
 mutants/
 .mutmut-cache
+
+# build artifacts
+*.egg-info/
