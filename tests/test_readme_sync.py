@@ -50,6 +50,14 @@ if whats_new_versions:
           latest_doc == veritas.__version__,
           f"(README {latest_doc} vs code {veritas.__version__})")
 
+# 1b. Status changelog must cover the current version (no stale tail).
+status_versions = re.findall(r"^v(\d+\.\d+\.\d+)\s*[—-]", readme, re.M)
+check("Status changelog exists", bool(status_versions))
+if status_versions:
+    check("Status changelog covers current version",
+          veritas.__version__ in status_versions,
+          f"(changelog has {status_versions[:3]}, code is {veritas.__version__})")
+
 # 2. Every __all__ export is importable and matches.
 for name in veritas.__all__:
     check(f"export veritas.{name} exists", hasattr(veritas, name))
