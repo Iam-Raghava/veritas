@@ -11,14 +11,13 @@ evidence, so the evaluation platform never sees retracted or stale context.
 That is the "memory governance" the track scores.
 
 **Retrieval is hybrid + reranked** (dense + TF-IDF with RRF fusion, then
-cross-encoder rerank): local ONNX multilingual embeddings
-(jina-embeddings-v2-small-en, 512-dim, no torch, no API costs) catch
-paraphrases and cross-lingual matches ("CEO" ~ "首席执行官"); CJK-aware
-TF-IDF (character bigrams) handles exact terms; bge-reranker-base
-cross-encoder rescores top candidates for precision. Set
-`VERITAS_DENSE_DIR` and `VERITAS_RERANK_DIR` to the model directories
-(Docker image bundles both); without them, retrieval degrades gracefully
-to TF-IDF.
+cross-encoder rerank): local ONNX multilingual embeddings (BGE-M3,
+1024-dim, 100+ languages, no torch, no API costs) catch paraphrases and
+cross-lingual matches ("CEO" ~ "首席执行官"); CJK-aware TF-IDF (character
+bigrams) handles exact terms; bge-reranker-base cross-encoder rescores
+top candidates for precision. Set `VERITAS_DENSE_DIR` and
+`VERITAS_RERANK_DIR` to the model directories (Docker image bundles
+both); without them, retrieval degrades gracefully to TF-IDF.
 **Detection is selectable**: heuristic (default, transparent),
 NLI (`VERITAS_DETECTOR=nli`, roberta-large-mnli), or LLM judge
 (`VERITAS_DETECTOR=llm`). The governance engine — entrenchment-ordered
