@@ -132,6 +132,7 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
                 "detector_name": detector_name,
                 "entrenchment_weights": store.entrenchment_weights,
                 "survival_threshold": store.survival_threshold,
+                "policy": store.policy,
                 "schema_version": SCHEMA_VERSION,
             })),
         )
@@ -165,6 +166,7 @@ def load(path: str) -> BeliefStore:
             entrenchment_weights=config.get("entrenchment_weights"),
             survival_threshold=config.get(
                 "survival_threshold", 0.5),
+            policy=config.get("policy", "entrenchment"),
         )
         store.detector_name = detector_name
         # Migrations: beliefs table may lack ground (v1->v2) or temporal
