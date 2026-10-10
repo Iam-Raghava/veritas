@@ -155,7 +155,7 @@ veritas/
 
 | Suite | What it proves | Result |
 |---|---|---|
-| `tests/run.py` | 39 core behavior tests | 39/39 |
+| `tests/run.py` | 40 core behavior tests | 40/40 |
 | `tests/test_v02.py` | 23 persistence/CLI/detector tests | 23/23 |
 | `tests/test_edge.py` | 11 adversarial: cycles, diamonds, 5k-deep chains, hostile detectors, contradiction storms | 11/11 |
 | `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 |
