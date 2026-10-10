@@ -29,15 +29,37 @@ from veritas import persist
 
 from .retrieval import BeliefRetriever
 
+RETRIEVAL_MODE = os.environ.get("VERITAS_RETRIEVAL", "hybrid")
+
 DB_PATH = os.environ.get("VERITAS_DB", os.path.join(os.path.dirname(__file__), "veritas_aml.db"))
+DETECTOR_NAME = os.environ.get("VERITAS_DETECTOR", "heuristic")
 
 app = FastAPI(title="Veritas AML Add/Search", version="0.1.0")
 
-if os.path.exists(DB_PATH):
-    store: BeliefStore = persist.load(DB_PATH)
+
+def _make_store() -> BeliefStore:
+    if os.path.exists(DB_PATH):
+        return persist.load(DB_PATH)
+    if DETECTOR_NAME == "nli":
+        from veritas.detect_nli import HuggingFaceNLIDetector
+        return BeliefStore(detector=HuggingFaceNLIDetector())
+    if DETECTOR_NAME == "llm":
+        from veritas.detect_llm import LLMJudgeDetector
+        return BeliefStore(detector=LLMJudgeDetector(
+            api_key=os.environ.get("VERITAS_LLM_API_KEY"),
+            model=os.environ.get("VERITAS_LLM_MODEL", "gpt-4o-mini"),
+            api_base=os.environ.get(
+                "VERITAS_LLM_API_BASE", "https://api.openai.com/v1"),
+        ))
+    return BeliefStore()  # heuristic (default)
+
+
+store: BeliefStore = _make_store()
+if RETRIEVAL_MODE == "hybrid":
+    from .retrieval_hybrid import HybridRetriever
+    retriever = HybridRetriever(store)
 else:
-    store = BeliefStore()
-retriever = BeliefRetriever(store)
+    retriever = BeliefRetriever(store)
 
 
 class AddItem(BaseModel):
@@ -99,7 +121,7 @@ def add(req: AddRequest) -> dict:
     # Contraction retractions = beliefs displaced by stronger newcomers or
     # lost to cascades, excluding supersessions (counted separately).
     retracted = max(0, active_before + added - active_after - superseded)
-    persist.save(store, DB_PATH)
+    persist.save(store, DB_PATH, detector_name=store.detector_name)
     return {
         "added": added,
         "rejected": rejected,
