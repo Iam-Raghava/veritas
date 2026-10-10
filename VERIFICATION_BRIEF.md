@@ -165,17 +165,12 @@ veritas/
 | `tests/test_audit_proof.py` | Audit completeness: every active belief has exactly one birth event; every retracted belief has a full lifecycle; every cascade names its lost justification; seq dense | pass |
 | `tests/test_differential.py` | 20 trials × 300 random ops vs an independent naive reference implementation: every accept/reject decision and final state identical | clean |
 | `tests/test_mutation.py` | 7 targeted mutants (tie rule, retraction order, pruning, cascade, rejection) | 7/7 killed |
-| `tests/fuzz.py` | 17,000+ random ops, 5 seeds, 5 invariants checked after every op | all held |
-| `tests/test_persist_fuzz.py` | 30 random SQLite round-trips byte-identical | 30/30 |
-| `tests/test_soak.py` | 100k ops: linear scaling, 23→86MB for 10× beliefs, no leaks | clean |
-| `tests/test_stress.py` | 8-thread concurrency; 100k beliefs, 2,490 assertions/sec, 0 contradictions remain | pass |
 | `tests/test_adversarial.py` | 14 cases: corrupt DBs, future/legacy schemas, 10k fan-out, self-contradicting detector, negative weights, clock skew, concurrent CLI, reentrant detector, snapshot isolation, deepcopy | 14/14 |
-| `tests/test_deploy_fuzz.py` | 5 cases: hostile journal files, detector totality, missing files | 5/5 |
 | `tests/test_v03.py` | 12 tests: EE2/EE3 dominance, zombie prevention, ground survival, zombie-bridge, Hansson rejection, subscriptions | 12/12 |
 | `tests/test_v04.py` | 22 checks: circular bypass, well-foundedness, Horn AND/OR, EE2 best-proof, commutativity, 4 constraint tests | 22/22 |
 | `tests/test_properties.py` | 7 mathematical invariants: EE2, monotonicity, cache consistency, temporal | 7/7 |
 | `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 |
-| `tests/verify_e2e.sh` | End-to-end: package, demo, dogfood, CLI, persistence, live deployment, publish-clean | 33/33 |
+| `tests/verify_e2e.sh` | End-to-end: package, demo, dogfood, CLI, persistence, live deployment, publish-clean | 30/30 |
 
 **Bugs found BY testing (not by inspection):** recursive cascade stack
 overflow → iterative; concurrent dict mutation → RLock; dead justifications
