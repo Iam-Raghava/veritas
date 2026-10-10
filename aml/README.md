@@ -11,8 +11,11 @@ evidence, so the evaluation platform never sees retracted or stale context.
 That is the "memory governance" the track scores.
 
 **Retrieval is hybrid** (dense + TF-IDF with RRF fusion): local ONNX
-embeddings catch paraphrases and cross-lingual matches ("CEO" ~
-"首席执行官"); CJK-aware TF-IDF handles exact terms. No API costs.
+multilingual embeddings (jina-embeddings-v2-small-en, 512-dim, no torch,
+no API costs) catch paraphrases and cross-lingual matches ("CEO" ~
+"首席执行官"); CJK-aware TF-IDF (character bigrams) handles exact terms.
+Set `VERITAS_DENSE_DIR` to the model directory (Docker image bundles it);
+without it, retrieval falls back to TF-IDF cleanly.
 **Detection is selectable**: heuristic (default, transparent),
 NLI (`VERITAS_DETECTOR=nli`, roberta-large-mnli), or LLM judge
 (`VERITAS_DETECTOR=llm`). The governance engine — entrenchment-ordered
@@ -25,7 +28,7 @@ contraction, cascades, audit — is identical regardless.
 | `VERITAS_DB` | `./aml/veritas_aml.db` | persistent path |
 | `VERITAS_RETRIEVAL` | `hybrid` | `hybrid` (dense+TF-IDF) or `tfidf` |
 | `VERITAS_DETECTOR` | `heuristic` | `heuristic`, `nli`, `llm` |
-| `VERITAS_DENSE_MODEL` | `jinaai/jina-embeddings-v2-small-en` | any fastembed model |
+| `VERITAS_DENSE_DIR` | — | dir with `model.onnx` + `tokenizer.json` |
 | `VERITAS_LLM_API_KEY` / `_MODEL` / `_API_BASE` | — | for `llm` detector |
 
 ## Run locally
