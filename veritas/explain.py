@@ -24,16 +24,18 @@ class Explainer:
 
     def why_retracted(self, belief_id: str) -> str:
         """Explain why a belief was retracted."""
-        # Find retraction event in audit
+        # Find retraction event in audit (direct or cascade).
         events = [e for e in self.store.audit if e.belief_id == belief_id]
         if not events:
             return f"No record of belief {belief_id}."
         # Get the belief (may be retracted)
-        belief = self.store._beliefs.get(belief_id)
+        belief = self.store.get(belief_id)
         prop = belief.proposition if belief else "(unknown)"
-        # Find retraction event
+        # Find retraction event (direct retraction or cascade).
         ret = next(
-            (e for e in events if e.event_type == "retracted"), None
+            (e for e in events
+             if e.event_type in ("retracted", "cascade_retracted")),
+            None,
         )
         if not ret:
             return f"Belief '{prop}' was not retracted."
@@ -52,8 +54,7 @@ class Explainer:
         # Check cascade
         cascaded = [
             e for e in self.store.audit
-            if e.event_type == "retracted"
-            and "cascade" in e.reason.lower()
+            if e.event_type == "cascade_retracted"
             and e.belief_id != belief_id
         ]
         if cascaded:
@@ -79,7 +80,7 @@ class Explainer:
 
     def belief_lineage(self, belief_id: str) -> str:
         """Show the justification chain for a belief."""
-        belief = self.store._beliefs.get(belief_id)
+        belief = self.store.get(belief_id)
         if not belief:
             return f"Belief {belief_id} not found."
         lines = [f"Lineage for '{belief.proposition}':"]
@@ -87,7 +88,7 @@ class Explainer:
             if bid in seen or depth > 5:
                 return
             seen.add(bid)
-            b = self.store._beliefs.get(bid)
+            b = self.store.get(bid)
             if not b:
                 return
             indent = "  " * depth
@@ -102,7 +103,7 @@ class Explainer:
     def summary(self) -> str:
         """Overall store health summary."""
         active = self.store.active_beliefs()
-        total = len(self.store._beliefs)
+        total = len(self.store.all_beliefs())
         retracted = total - len(active)
         events = list(self.store.audit)
         return (
