@@ -37,6 +37,8 @@ class DenseEmbedder:
 
     def embed(self, texts: list[str]):
         np = self._np
+        if not texts:
+            return np.zeros((0, self.dims), dtype=np.float32)
         enc = self._tok.encode_batch(texts)
         ids = np.array([e.ids for e in enc], dtype=np.int64)
         mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
