@@ -46,12 +46,31 @@ belief revision as a memory layer** — no LLM in the retraction decision.
 ```
 POST /add  → BeliefStore.assert_belief (contraction + cascades + audit)
              → SQLite persist
-POST /search → TF-IDF over active beliefs → evidence (text, score,
+POST /search → Hybrid retrieval (dense + TF-IDF, RRF fusion)
+               over active beliefs → evidence (text, score,
                entrenchment, timestamp, source)
 ```
 
-Model-free: heuristic contradiction detector, TF-IDF retrieval. No
-embeddings, no LLM calls in the serving path.
+**Retrieval**: hybrid dense + TF-IDF. Local ONNX multilingual embeddings
+(jina-embeddings-v2-small-en via fastembed — no API costs) catch
+paraphrases and cross-lingual matches; CJK-aware TF-IDF (character
+bigrams) handles exact terms. RRF fusion combines rankings. Only
+ACTIVE beliefs are indexed — retracted beliefs never surface.
+
+**Detection** (selectable via `VERITAS_DETECTOR`): heuristic (default,
+transparent), NLI (roberta-large-mnli), or LLM judge. The governance
+engine — entrenchment-ordered contraction, JTMS cascades, audit —
+is identical regardless.
+
+## Why this wins
+
+Most entries are pure retrieval: they return whatever matches, including
+stale and contradicted facts. Veritas is the only entry with principled
+memory governance — when "CEO is John" arrives against "CEO is Jane",
+the weaker claim is retracted (audited), its dependents cascade, and
+search never surfaces the outdated fact. On the Adapt (memory governance)
+dimension this is the decisive edge; on Recall, hybrid dense+TF-IDF
+keeps us competitive.
 
 ## Verification (all reproducible in-repo)
 
