@@ -12,10 +12,11 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request, json; assert json.load(urllib.request.urlopen('http://localhost:8000/health'))['status'] == 'ok'"]
+             "import urllib.request, json; assert json.load(urllib.request.urlopen('http://localhost:8000/ready'))['ready'] == True"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 60s
 
 volumes:
   veritas-data:
