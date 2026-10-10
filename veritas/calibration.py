@@ -8,6 +8,20 @@ This module tracks calibration over time, enabling:
 - Reporting calibration curves
 
 Well-calibrated confidence is essential for production ML systems.
+
+Wiring: CalibrationTracker is deliberately NOT auto-wired into
+BeliefStore (the store stays dependency-free). It is a manual
+utility — record assertions as you make them, and record survival
+for beliefs still active after a retraction wave:
+
+    tracker = CalibrationTracker()
+    store = BeliefStore()
+    b = store.assert_belief("...", confidence=0.9, source="sensor")
+    if b:
+        tracker.record_assertion(b.confidence, b.source, b.id)
+    # ... later, after retractions ...
+    for ab in store.active_beliefs():
+        tracker.record_survival(ab.confidence, ab.source)
 """
 
 from __future__ import annotations
