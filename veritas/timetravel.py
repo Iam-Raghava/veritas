@@ -22,7 +22,10 @@ class TimeTravel:
         self.store = store
 
     def beliefs_at(self, timestamp: float) -> list[Belief]:
-        """Reconstruct active beliefs as of timestamp."""
+        """Reconstruct active beliefs as of timestamp.
+
+        Returns snapshots: mutating them cannot affect the store.
+        """
         # Replay audit log up to timestamp
         active: dict[str, Belief] = {}
         for event in self.store.audit:
@@ -31,10 +34,11 @@ class TimeTravel:
             if event.event_type == "asserted":
                 # Reconstruct from event details if available
                 # (simplified: use current belief if it existed then)
-                b = self.store._beliefs.get(event.belief_id)
+                b = self.store.get(event.belief_id)
                 if b and b.timestamp <= timestamp:
                     active[event.belief_id] = b
-            elif event.event_type in ("retracted", "rejected"):
+            elif event.event_type in ("retracted", "cascade_retracted",
+                                      "rejected"):
                 active.pop(event.belief_id, None)
         return list(active.values())
 
@@ -42,7 +46,8 @@ class TimeTravel:
         """Timestamp when a belief was retracted, if ever."""
         for event in self.store.audit:
             if (event.belief_id == belief_id
-                    and event.event_type == "retracted"):
+                    and event.event_type in ("retracted",
+                                             "cascade_retracted")):
                 return event.timestamp
         return None
 
