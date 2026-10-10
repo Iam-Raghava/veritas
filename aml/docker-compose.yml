@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  veritas-aml:
+    build: ..
+    dockerfile: aml/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - veritas-data:/data
+    environment:
+      - VERITAS_DB=/data/veritas.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request, json; assert json.load(urllib.request.urlopen('http://localhost:8000/health'))['status'] == 'ok'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  veritas-data:
