@@ -1,0 +1,31 @@
+# fly.io deployment for the Veritas AML Add/Search service.
+# Usage:
+#   fly auth login
+#   fly launch --no-deploy        # creates the app (accept defaults)
+#   fly volumes create veritas-data --size 1 --region ord
+#   fly deploy
+# The service is then live at https://<app-name>.fly.dev
+
+app = "veritas-aml"
+primary_region = "ord"
+
+[build]
+  dockerfile = "aml/Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[mounts]]
+  source = "veritas-data"
+  destination = "/data"
