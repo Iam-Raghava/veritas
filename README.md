@@ -114,12 +114,12 @@ Tested like infrastructure, not a demo:
 
 | Suite | What it does | Status |
 |---|---|---|
-| `tests/run.py` | 39 core unit tests (contraction, cascades, audit) | 39/39 pass |
+| `tests/run.py` | 40 core unit tests (contraction, cascades, audit) | 40/40 pass |
 | `tests/test_v02.py` | 23 persistence/CLI/detector/index tests | 23/23 pass |
 | `tests/test_edge.py` | 11 adversarial cases (cycles, 5000-deep chains, hostile detectors, 50-way contradiction storms) | 11/11 pass |
 | `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 pass |
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
-| `tests/test_readme.py` | Every README code block runs | 2/2 pass |
+| `tests/test_readme.py` | Every README code block runs | 3/3 pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
@@ -276,7 +276,7 @@ v0.3.0 — formal rigor + zombie prevention:
 
 v0.2.0 — core engine + production surface:
 - Truth maintenance core: belief model, entrenchment, Hansson-style contraction,
-  JTMS-style propagation, append-only audit. 39/39 core tests passing.
+  JTMS-style propagation, append-only audit. 40/40 core tests passing.
 - SQLite persistence (beliefs, audit log, config round-trip). 23/23 v0.2 tests.
 - Pluggable detectors: transparent heuristic (default), HuggingFace NLI
   (optional), custom via `Detector` protocol.
