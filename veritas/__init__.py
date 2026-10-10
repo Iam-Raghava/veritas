@@ -5,7 +5,7 @@ beliefs, *automatically* decide what to retract using a principled policy
 (epistemic entrenchment), propagate the retraction through belief
 dependencies, and audit everything.
 """
-from .audit import AuditEvent, AuditLog
+from .audit import AuditEvent, AuditLog, CONSTRAINT_ERROR
 from .belief import Belief
 from .detect import (
     ContradictionFn,
@@ -49,6 +49,7 @@ __all__ = [
     "describe_policy",
     "AuditEvent",
     "AuditLog",
+    "CONSTRAINT_ERROR",
     "ContradictionFn",
     "Detector",
     "HeuristicDetector",
