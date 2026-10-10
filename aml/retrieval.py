@@ -45,10 +45,10 @@ class BeliefRetriever:
         self._idf = {
             tok: math.log((1 + n) / (1 + c)) + 1.0 for tok, c in df.items()
         }
-        self._built_gen = self.store._ent_gen
+        self._built_gen = self.store.generation
 
     def _maybe_rebuild(self) -> None:
-        if self.store._ent_gen != self._built_gen:
+        if self.store.generation != self._built_gen:
             self.rebuild()
 
     def search(
