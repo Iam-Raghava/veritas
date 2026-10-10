@@ -63,7 +63,18 @@ uvicorn aml.app:app --port 8000
 
 Retracted beliefs never appear in `Search` results.
 
-`GET /health` — liveness + store stats.
+`GET /health` — liveness probe (is the process alive?).
+
+`GET /ready` — readiness probe (can we serve? checks DB writability,
+retriever status, dense model, store consistency).
+
+`GET /metrics` — Prometheus-style metrics (request counts, p50/p99
+latencies, active beliefs, uptime).
+
+Production notes: structured logs with `X-Request-ID` tracing, input
+limits (`VERITAS_MAX_BATCH=1000`, `VERITAS_MAX_TEXT_LEN=100000`),
+graceful shutdown persists the store, unhandled errors return
+`{"error": ..., "request_id": ...}` (never a bare 500).
 
 ## Deploy
 
