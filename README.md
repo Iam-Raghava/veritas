@@ -77,6 +77,43 @@ entrenchment = 0.40 × source_reliability
 
 No single factor dominates; a fresh rumor can't beat an old verified fact, and a verified fact can't beat a fresher verified fact.
 
+## What is Veritas?
+
+**Veritas is Latin for "truth"** — the Roman virtue of truthfulness. The name is the claim: this is the component that keeps an agent's memory truthful over time.
+
+### The problem
+
+Every LLM agent with long-term memory has the same untreated wound: **memory is append-only**. The agent learns "the CEO is Jane" in March, "the CEO is John" in June — and both facts sit in the index forever. Retrieval returns stale alongside fresh. The agent hallucinates with confidence, citing outdated context as current truth.
+
+Existing answers are all bad:
+
+| Approach | Problem |
+|---|---|
+| **Latest-wins overwrite** | Silently destroys history; no audit; a rumor overwrites a verified fact |
+| **Manual curation** | Doesn't scale past a demo |
+| **Ask the LLM per-case** | Expensive, unprincipled, unaudited, non-deterministic |
+| **Nothing** (most agents) | Memory rots; long-horizon agents degrade |
+
+### How Veritas fixes it
+
+Veritas treats memory as a **belief base** — a set of propositions that must stay consistent — and maintains it automatically:
+
+1. **Beliefs carry pedigree.** Every fact records *where it came from* (source, reliability), *how sure the agent is* (confidence), *what justifies it* (premise beliefs), and *when it holds* (temporal validity). This pedigree is what makes principled retraction possible. Without it, the system can only do "latest wins".
+
+2. **Contradictions trigger adjudication, not overwrite.** When "CEO is John" arrives against "CEO is Jane", Veritas computes each side's **entrenchment** — how resistant it is to retraction — from source reliability, corroboration, confidence, and recency. Weakest retracts first. If the newcomer can't outrank *every* contradictor, it's **rejected** — the store refuses to corrupt itself with weak claims.
+
+3. **Retractions propagate.** Beliefs record their justifications (JTMS-style). Retract "CEO is Jane" and "Jane founded Acme" — which was justified *by* the CEO belief — is re-evaluated: it lost its premise, so it cascade-retracts too, unless it can stand on its own source. Changes ripple through the dependency graph automatically.
+
+4. **Nothing disappears silently.** Every assertion, retraction, cascade, and rejection is written to an append-only audit log with its reason. "Why did my agent forget X?" always has an answer.
+
+### How this helps any LLM or agent
+
+- **Kills stale context** — the #1 failure mode of long-horizon agents. Outdated beliefs are retracted when updates arrive, so retrieval returns the current truth, not a mix of eras.
+- **Deterministic** — the same evidence always produces the same memory state. Debuggable, testable, reproducible. No LLM in the retraction decision.
+- **Model-agnostic** — operates at the memory layer, not the model layer. Swap Claude for GPT for Gemini; Veritas doesn't care. Your agent's memory survives model upgrades.
+- **Temporal sanity** — "was online" (past) doesn't contradict "is offline" (now). Beliefs carry validity intervals; only overlapping intervals can conflict.
+- **Auditable compliance** — time-travel reconstructs what the agent believed at any timestamp. Prove what was known when a decision was made.
+
 ## Quick start
 
 ```python
@@ -120,7 +157,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 pass |
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
 | `tests/test_readme.py` | Every README code block runs | 3/3 pass |
-| `tests/test_readme_sync.py` | README version/exports/test-files match code | 55/55 pass |
+| `tests/test_readme_sync.py` | README version/exports/test-files/changelog match code | 58/58 pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
@@ -232,6 +269,26 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.11.0 — export formats:
+- `to_json`, `to_dot` (Graphviz), `to_graphml` (Gephi/Cytoscape) for
+  belief-graph visualization and analysis.
+
+v0.10.0 — time-travel:
+- `TimeTravel`: reconstruct belief state at any timestamp via audit replay;
+  `when_retracted`, `history_of`.
+
+v0.9.0 — LLM-as-judge detector:
+- `LLMJudgeDetector`: use any frontier model (Claude 5.5, GPT-6, Gemini 4)
+  as contradiction judge via OpenAI-compatible API or custom callable.
+  The LLM judges; Veritas still decides.
+
+v0.8.0 — explanations + policies + calibration:
+- `Explainer`: `why_retracted()`, `why_rejected()`, `belief_lineage()`,
+  `summary()` — "why did my agent forget X?" has an answer.
+- Contraction policies: `entrenchment` (default), `conservative`.
+- `CalibrationTracker`: confidence-vs-survival calibration curves.
+- Scale validated: 100k beliefs at 15k/sec, sub-millisecond queries.
 
 v0.7.0 — semantic + async + temporal:
 - SemanticDetector: embedding-based contradiction detection (antonyms,
