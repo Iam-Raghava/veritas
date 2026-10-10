@@ -1,0 +1,4 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+# veritas itself: install from this repo
+# pip install -e /path/to/veritas
