@@ -59,13 +59,25 @@ class HybridRetriever:
         import numpy as np
 
         beliefs = self.store.active_beliefs()
-        self._dense_ids = [b.id for b in beliefs]
-        texts = [b.proposition for b in beliefs]
-        if texts and self._dense is not None:
-            mat = self._dense.embed(texts).astype(np.float32)
-            self._dense_vecs = mat  # already L2-normalized
+        active_ids = {b.id for b in beliefs}
+        # Drop vectors for retracted beliefs.
+        keep = [i for i, did in enumerate(self._dense_ids)
+                if did in active_ids]
+        if keep and self._dense_vecs is not None:
+            self._dense_ids = [self._dense_ids[i] for i in keep]
+            self._dense_vecs = self._dense_vecs[keep]
         else:
+            self._dense_ids = []
             self._dense_vecs = None
+        # Embed only NEW beliefs (incremental, not O(N) every time).
+        known = set(self._dense_ids)
+        new_beliefs = [b for b in beliefs if b.id not in known]
+        if new_beliefs and self._dense is not None:
+            mat = self._dense.embed(
+                [b.proposition for b in new_beliefs]).astype(np.float32)
+            self._dense_ids.extend(b.id for b in new_beliefs)
+            self._dense_vecs = (mat if self._dense_vecs is None
+                                else np.vstack([self._dense_vecs, mat]))
         self._dense_gen = self.store.generation
 
     def _maybe_rebuild_dense(self) -> None:
