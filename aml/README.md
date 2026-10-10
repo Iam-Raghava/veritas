@@ -54,7 +54,15 @@ Set `VERITAS_DB` to a persistent path; the store saves after every `/add`
 batch and reloads on startup.
 
 ```bash
+# bare metal
 VERITAS_DB=/data/veritas.db uvicorn aml.app:app --host 0.0.0.0 --port 8000
+
+# docker
+docker build -f aml/Dockerfile -t veritas-aml .
+docker run -p 8000:8000 -v veritas-data:/data veritas-aml
+
+# compose
+docker compose -f aml/docker-compose.yml up -d
 ```
 
 ## Test
