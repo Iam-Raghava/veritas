@@ -37,6 +37,7 @@ from typing import Any, Callable
 from .audit import (
     ASSERTED,
     CASCADE_RETRACTED,
+    CONSTRAINT_ERROR,
     REJECTED,
     RETRACTED,
     AuditLog,
@@ -93,7 +94,7 @@ class BeliefStore:
         self._audit = AuditLog()
         # Observability: optional Metrics collector (veritas.observability).
         self.metrics = metrics
-        # Contraction policy: entrenchment (default), maxichoice, conservative.
+        # Contraction policy: entrenchment (default) or conservative.
         self.policy = policy
         if detector is not None:
             base_fn = as_function(detector)
@@ -148,6 +149,22 @@ class BeliefStore:
         # multiple threads. RLock because public methods call each other
         # (assert_belief -> contradictors_of -> ...) on the same thread.
         self._lock = threading.RLock()
+
+    def _bump_metric(self, name: str, amount: int = 1) -> None:
+        """Increment a Metrics counter if a collector is attached."""
+        if self.metrics is not None:
+            setattr(self.metrics, name,
+                    getattr(self.metrics, name, 0) + amount)
+
+    @property
+    def generation(self) -> int:
+        """Monotonic counter bumped on every graph mutation.
+
+        External indexes (e.g. the AML TF-IDF retriever) can compare
+        this against their build generation to know when to rebuild.
+        """
+        with self._lock:
+            return self._ent_gen
 
     def __deepcopy__(self, memo):
         """Deep copy without the lock (RLock can't be copied)."""
@@ -493,6 +510,10 @@ class BeliefStore:
         (or the newcomer is rejected if it is among the weakest and the
         constraint cannot be satisfied without removing it).
 
+        Failure policy: if `check` raises, the error is audit-logged as a
+        CONSTRAINT_ERROR event and that constraint is skipped for the run
+        (not treated as satisfied). Other constraints still enforce.
+
         Example — budget constraint:
             store.add_constraint("budget", lambda beliefs: (
                 [b.id for b in beliefs if b.metadata.get("cost", 0) > 0]
@@ -512,7 +533,14 @@ class BeliefStore:
             self._constraints.pop(name, None)
 
     def check_constraints(self) -> dict[str, list[str]]:
-        """Run all constraints; returns {name: [violating belief IDs]}."""
+        """Run all constraints; returns {name: [violating belief IDs]}.
+
+        Failure policy: if a constraint's check function raises, the
+        error is recorded in the audit log as a CONSTRAINT_ERROR event
+        and that constraint is skipped (treated as unknown, not as
+        satisfied). A broken constraint never blocks enforcement of
+        the others, and never silently passes.
+        """
         with self._lock:
             snapshots = [b.snapshot() for b in self._beliefs.values()
                          if b.is_active]
@@ -520,9 +548,18 @@ class BeliefStore:
             for name, check in self._constraints.items():
                 try:
                     violated = check(snapshots)
-                except Exception:
-                    # A broken constraint must not break the store.
-                    violated = []
+                except Exception as exc:
+                    # Audited, not silent: a broken constraint is skipped,
+                    # not treated as satisfied.
+                    self._audit.record(
+                        CONSTRAINT_ERROR,
+                        "",
+                        "",
+                        f"constraint '{name}' raised {type(exc).__name__}: {exc}",
+                        {"constraint": name,
+                         "error": f"{type(exc).__name__}: {exc}"},
+                    )
+                    continue
                 if violated:
                     # Only report IDs that are actually active.
                     active_ids = {b.id for b in snapshots}
@@ -551,6 +588,7 @@ class BeliefStore:
             violations = self.check_constraints()
             if not violations:
                 break
+            self._bump_metric("constraint_violations", len(violations))
             # Collect all violating IDs across constraints.
             viol_ids: set[str] = set()
             for vids in violations.values():
@@ -636,7 +674,7 @@ class BeliefStore:
             source_reliability=source_reliability,
             justifications=valid_justs,
             metadata=dict(metadata or {}),
-            timestamp=timestamp or 0.0,
+            timestamp=timestamp,  # None -> Belief defaults to now; 0.0 stays 0.0
             ground=ground,
             valid_from=valid_from,
             valid_until=valid_until,
@@ -656,6 +694,8 @@ class BeliefStore:
                 {"entrenchment": new_ent,
                  "contradictor_ids": [b.id for b in contradictors]},
             )
+            self._bump_metric("rejections")
+            self._bump_metric("contradictions_found", len(contradictors))
             return None
 
         if not contradictors:
@@ -672,6 +712,7 @@ class BeliefStore:
                     "by retracting the newcomer",
                     {"entrenchment": new_ent},
                 )
+                self._bump_metric("rejections")
                 return None
             self._audit.record(
                 ASSERTED,
@@ -682,6 +723,7 @@ class BeliefStore:
                  "pruned_justifications": pruned_justs,
                  "constraint_retracted": [b.id for b in c_retracted]},
             )
+            self._bump_metric("assertions")
             return new.snapshot()
 
         # A belief cannot borrow entrenchment from beliefs its own
@@ -737,8 +779,11 @@ class BeliefStore:
                     "pruned_justifications": pruned_justs,
                 },
             )
+            self._bump_metric("rejections")
+            self._bump_metric("contradictions_found", len(contradictors))
             return None
 
+        self._bump_metric("contradictions_found", len(contradictors))
         # Contract weakest-first, with cascading propagation.
         retracted: list[Belief] = []
         for old in weakest_first:
@@ -774,6 +819,7 @@ class BeliefStore:
                 "by retracting the newcomer",
                 {"entrenchment": new_ent},
             )
+            self._bump_metric("rejections")
             return None
         self._audit.record(
             ASSERTED,
@@ -786,6 +832,7 @@ class BeliefStore:
              "pruned_justifications": pruned_justs,
              "constraint_retracted": [b.id for b in c_retracted]},
         )
+        self._bump_metric("assertions")
         return new.snapshot()
 
     # ------------------------------------------------------------------
@@ -933,6 +980,12 @@ class BeliefStore:
                 self._fire_subscribers(dependent.id, CASCADE_RETRACTED)
                 for sub in self._dependents_of_locked(dependent.id):
                     stack.append((sub, dependent.id))
+        # Metrics: every retracted belief counts; a cascade is a
+        # retraction event that took dependents with it.
+        self._bump_metric("retractions", len(retracted))
+        if cascade and len(retracted) > 1:
+            self._bump_metric("cascades")
+            self._bump_metric("cascade_size_total", len(retracted) - 1)
         return [b.snapshot() for b in retracted]
 
     # ------------------------------------------------------------------
