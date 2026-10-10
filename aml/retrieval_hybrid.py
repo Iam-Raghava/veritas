@@ -5,8 +5,9 @@ Dense embeddings catch semantics ("CEO" ~ "首席执行官", "Acme" ~ "这家公
 RRF (Reciprocal Rank Fusion) combines both rankings without score
 normalization headaches.
 
-The dense model is local and free (fastembed ONNX, no API costs).
-If the model can't load, falls back to TF-IDF alone — never crashes.
+The dense model is local ONNX (aml/dense.py) — no API costs, no torch.
+Set VERITAS_DENSE_DIR to the directory with model.onnx + tokenizer.json.
+If unset or unloadable, falls back to TF-IDF alone — never crashes.
 
 Kept separate from retrieval.py (pure TF-IDF) so the model-free
 story stays intact; the AML service selects via RETRIEVAL_MODE env.
@@ -25,8 +26,6 @@ except ImportError:
     from retrieval import BeliefRetriever
 
 RETRIEVAL_MODE = os.environ.get("VERITAS_RETRIEVAL", "hybrid")
-_DENSE_MODEL = os.environ.get(
-    "VERITAS_DENSE_MODEL", "jinaai/jina-embeddings-v2-small-en")
 
 
 class HybridRetriever:
@@ -44,12 +43,13 @@ class HybridRetriever:
 
     def _init_dense(self) -> None:
         try:
-            from fastembed import TextEmbedding
-            self._dense = TextEmbedding(_DENSE_MODEL)
-        except Exception as e:
-            # Model unavailable: TF-IDF alone. Log, don't crash.
-            print(f"[hybrid] dense model unavailable ({e}); TF-IDF only")
-            self._dense = None
+            from dense import DenseEmbedder
+        except ImportError:
+            from aml.dense import DenseEmbedder
+        self._dense = DenseEmbedder.load()
+        if self._dense is None:
+            print("[hybrid] no dense model (set VERITAS_DENSE_DIR); "
+                  "TF-IDF only")
 
     @property
     def dense_active(self) -> bool:
@@ -62,11 +62,8 @@ class HybridRetriever:
         self._dense_ids = [b.id for b in beliefs]
         texts = [b.proposition for b in beliefs]
         if texts and self._dense is not None:
-            vecs = list(self._dense.embed(texts))
-            mat = np.array(vecs, dtype=np.float32)
-            norms = np.linalg.norm(mat, axis=1, keepdims=True)
-            norms[norms == 0] = 1.0
-            self._dense_vecs = mat / norms
+            mat = self._dense.embed(texts).astype(np.float32)
+            self._dense_vecs = mat  # already L2-normalized
         else:
             self._dense_vecs = None
         self._dense_gen = self.store.generation
@@ -86,12 +83,7 @@ class HybridRetriever:
             return []
         if not self._dense_ids:
             return []
-        qv = np.array(
-            list(self._dense.embed([query]))[0], dtype=np.float32)
-        n = np.linalg.norm(qv)
-        if n == 0:
-            return []
-        qv = qv / n
+        qv = self._dense.embed([query])[0].astype(np.float32)
         sims = self._dense_vecs @ qv
         order = np.argsort(-sims)[:top_k]
         return [(self._dense_ids[i], float(sims[i])) for i in order]
