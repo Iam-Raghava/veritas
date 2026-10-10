@@ -25,12 +25,12 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 **Works with any model** — Claude 5.5, GPT-6, Gemini 4, Llama, whatever's next. Veritas operates at the memory layer, not the model layer. The models change; the need for truth maintenance doesn't.
 
-## What's new in v0.11.0
+## What's new
 
-- **LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
-- **Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
-- **Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
-- **Explanations**: `why_retracted()` answers "why did my agent forget X?"
+- **v0.11.0 — Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
+- **v0.10.0 — Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
+- **v0.9.0 — LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
+- **Earlier**: Explanations (`why_retracted()` answers "why did my agent forget X?"), SQLite persistence, CLI, async API, framework wrappers, metrics, n-ary constraints, Horn-clause justifications.
 - **Scale**: 100k beliefs at 15k/sec, sub-millisecond queries.
 
 ## How it works
@@ -120,6 +120,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 pass |
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
 | `tests/test_readme.py` | Every README code block runs | 3/3 pass |
+| `tests/test_readme_sync.py` | README version/exports/test-files match code | 55/55 pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
