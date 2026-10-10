@@ -97,5 +97,8 @@ class AsyncBeliefStore:
     async def check_constraints(self) -> dict[str, list[str]]:
         return await asyncio.to_thread(self._store.check_constraints)
 
+    async def stats(self) -> dict:
+        return await asyncio.to_thread(self._store.stats)
+
     def __repr__(self) -> str:
         return f"AsyncBeliefStore({self._store!r})"
