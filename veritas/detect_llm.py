@@ -101,6 +101,20 @@ class LLMJudgeDetector:
                 return False
         return judge
 
+    def contradicts(self, a: Belief, b: Belief) -> bool:
+        """Detector protocol method: True if a and b cannot both hold.
+
+        Fail-open policy: if the judge call raises (API outage, bad
+        key, malformed response), returns False and the pair is treated
+        as non-contradictory. Rationale: a detector must never crash an
+        assertion; but be aware that an unreachable judge silently
+        disables contradiction detection for this detector.
+        """
+        try:
+            return self(a, b)
+        except Exception:
+            return False
+
     def __call__(self, a: Belief | str, b: Belief | str) -> bool:
         pa = a.proposition if isinstance(a, Belief) else a
         pb = b.proposition if isinstance(b, Belief) else b
