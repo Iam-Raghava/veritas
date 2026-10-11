@@ -149,14 +149,24 @@ def test_retract_nonexistent_is_noop():
 
 
 def test_justification_to_retracted_pruned():
-    """Assert with justification to a dead belief: pruned, not dangling."""
+    """Assert with justification to a dead belief: zombie-birth prevention.
+
+    A non-ground belief whose justifications ALL point to dead beliefs is
+    an ungrounded orphan at birth and must be rejected (Doyle
+    well-foundedness: a derived belief with no valid proof cannot be
+    active). A ground observation in the same situation is still stored —
+    ground observations survive orphaning.
+    """
     s = BeliefStore()
     dead = s.assert_belief("Acme's CEO is Alice", source="x", source_reliability=0.9)
     s.retract_belief(dead.id)
-    live = s.assert_belief("Acme's HQ is Austin", source="x", source_reliability=0.9,
-                           justifications=[dead.id, "ghost-id"])
-    assert live is not None
-    assert live.justifications == [], f"expected pruned, got {live.justifications}"
+    zombie = s.assert_belief("Acme's HQ is Austin", source="x", source_reliability=0.9,
+                             justifications=[dead.id, "ghost-id"])
+    assert zombie is None, "non-ground belief with all-dead justifications must be rejected"
+    grounded = s.assert_belief("Acme's HQ is Austin", source="x", source_reliability=0.9,
+                               justifications=[dead.id], ground=True)
+    assert grounded is not None, "ground observation with dead justifications must be stored"
+    assert grounded.justifications == [], f"expected pruned, got {grounded.justifications}"
     assert s.is_consistent()
 
 

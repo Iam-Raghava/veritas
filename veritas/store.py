@@ -795,6 +795,23 @@ class BeliefStore:
             return None
 
         if not contradictors:
+            # Zombie-birth prevention (no-contradictor path): a non-ground
+            # belief whose justifications were all pruned (dead premises)
+            # is an ungrounded orphan at birth. Reject before storing —
+            # the contradictor-path check below only runs when
+            # contradictors exist, so this path needs its own guard.
+            if not new.ground and not new.justifications and normed:
+                self._audit.record(
+                    REJECTED,
+                    new.id,
+                    new.proposition,
+                    "rejected: all justifications pruned (dead premises) "
+                    "and belief is not grounded; no incumbents touched",
+                    {"entrenchment": new_ent,
+                     "pruned_justifications": pruned_justs},
+                )
+                self._bump_metric("rejections")
+                return None
             self._store(new)
             # Enforce n-ary constraints (joint inconsistency).
             # Transactional: returns None if the newcomer must be rejected;
