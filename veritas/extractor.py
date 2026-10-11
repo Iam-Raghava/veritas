@@ -64,41 +64,69 @@ class ClaimExtractor(Protocol):
         ...
 
 
-# Re-export the heuristic implementation with the new schema.
-from veritas.extract import HeuristicClaimExtractor as _HeuristicBase
+# Sentence splitting for heuristic extraction.
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'])")
+_SPO_PATTERNS = [
+    re.compile(r"^\s*(?P<subj>.+?)'s\s+(?P<pred>.+?)\s+is\s+(?P<obj>.+?)\s*$",
+               re.IGNORECASE),
+    re.compile(r"^\s*(?P<subj>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?P<subj>.+?)\s+has\s+(?P<obj>.+?)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?P<subj>.+?)\s+will\s+(?P<obj>.+?)\s*$", re.IGNORECASE),
+]
 
 
 class HeuristicExtractor:
-    """Rule-based extractor with full ExtractedClaim schema.
-
-    Wraps HeuristicClaimExtractor to emit ExtractedClaim objects.
-    """
+    """Rule-based extractor with full ExtractedClaim schema."""
 
     def __init__(self, min_length: int = 3) -> None:
-        self._base = _HeuristicBase(min_length=min_length)
+        self.min_length = min_length
 
     def extract_claims(
         self, text: str, source: str = "agent",
     ) -> list[ExtractedClaim]:
-        base_claims = self._base.extract_claims(text)
-        return [
-            ExtractedClaim(
-                proposition=c.text,
-                confidence=c.confidence,
+        if not text or not text.strip():
+            return []
+        claims: list[ExtractedClaim] = []
+        offset = 0
+        for sent in _SENT_SPLIT.split(text):
+            sent = sent.strip()
+            if len(sent) < self.min_length:
+                offset += len(sent) + 1
+                continue
+            start = text.find(sent, offset)
+            if start == -1:
+                start = offset
+            end = start + len(sent)
+            offset = end
+            # SPO extraction.
+            subj = pred = obj = None
+            conf = 0.7
+            for pat in _SPO_PATTERNS:
+                m = pat.match(sent)
+                if m:
+                    gd = m.groupdict()
+                    subj = gd.get("subj", "").strip() or None
+                    pred = gd.get("pred", "").strip() or None
+                    obj = gd.get("obj", "").strip() or None
+                    conf = 0.9
+                    break
+            claims.append(ExtractedClaim(
+                proposition=sent,
+                confidence=conf,
                 source=source,
-                subject=c.subject,
-                relation=c.predicate,
-                object=c.object,
-                ground=False,  # Heuristic can't determine; default False.
-                start=c.start,
-                end=c.end,
-            )
-            for c in base_claims
-        ]
+                subject=subj,
+                relation=pred,
+                object=obj,
+                ground=False,
+                start=start,
+                end=end,
+            ))
+        return claims
 
     def extract_propositions(self, text: str) -> list[str]:
         """Convenience: return just the claim texts."""
-        return self._base.extract_propositions(text)
+        return [c.proposition
+                for c in self.extract_claims(text)]
 
 
 class StructuredLLMExtractor:
@@ -205,3 +233,13 @@ Example output:
             print(f"[StructuredLLMExtractor] LLM failed ({e}); "
                   f"falling back to heuristic")
             return HeuristicExtractor().extract_claims(text, source=source)
+
+
+# ----------------------------------------------------------------------
+# Backward-compatibility aliases (consolidated from veritas/extract.py).
+# veritas/extract.py is deprecated; import from veritas.extractor instead.
+# ----------------------------------------------------------------------
+# Claim is the legacy name for ExtractedClaim.
+Claim = ExtractedClaim
+# HeuristicClaimExtractor is the legacy name for HeuristicExtractor.
+HeuristicClaimExtractor = HeuristicExtractor
