@@ -69,6 +69,20 @@ else bad "v0.3 suite"; tail -3 /tmp/vt11.log; fi
 if python3 tests/test_v04.py > /tmp/vt12.log 2>&1 && grep -q "22 passed, 0 failed" /tmp/vt12.log; then
   ok "v0.5 suite 22/22"
 else bad "v0.5 suite"; tail -3 /tmp/vt12.log; fi
+if python3 tests/test_v05.py > /tmp/vt13.log 2>&1 && grep -q "7 passed, 0 failed" /tmp/vt13.log; then
+  ok "v0.5 enterprise suite 7/7"
+else bad "v0.5 enterprise suite"; tail -3 /tmp/vt13.log; fi
+if python3 tests/test_round4_regressions.py > /tmp/vt12b.log 2>&1 && grep -q "34 passed, 0 failed" /tmp/vt12b.log; then
+  ok "round-4 regression suite 34/34"
+else bad "round-4 regression suite"; tail -3 /tmp/vt12b.log; fi
+# Invariant suites (previously omitted from gate).
+for t in test_doomed_simulation test_properties test_borrowed_entrenchment test_mutation; do
+  if [ -f "tests/${t}.py" ]; then
+    if python3 "tests/${t}.py" > /tmp/vt_${t}.log 2>&1; then
+      ok "invariant suite: ${t}"
+    else bad "invariant suite: ${t}"; tail -3 /tmp/vt_${t}.log; fi
+  fi
+done
 
 echo "== 3. demo =="
 if python3 examples/demo.py > /tmp/vtdemo.log 2>&1 && grep -q "All demo assertions passed" /tmp/vtdemo.log; then
