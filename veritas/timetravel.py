@@ -24,22 +24,34 @@ class TimeTravel:
     def beliefs_at(self, timestamp: float) -> list[Belief]:
         """Reconstruct active beliefs as of timestamp.
 
+        Reconstructs SOLELY from immutable audit event payloads — never
+        touches the live store's mutated objects. Each ASSERTED event
+        carries a belief_snapshot in details; we replay assertions and
+        retractions in order.
+
         Returns snapshots: mutating them cannot affect the store.
         """
-        # Replay audit log up to timestamp
+        from veritas.belief import Belief
         active: dict[str, Belief] = {}
         for event in self.store.audit:
             if event.timestamp > timestamp:
                 break
             if event.event_type == "asserted":
-                # Reconstruct from event details if available
-                # (simplified: use current belief if it existed then)
-                b = self.store.get(event.belief_id)
-                if b and b.timestamp <= timestamp:
+                snap = event.details.get("belief_snapshot")
+                if snap:
+                    # Reconstruct from immutable snapshot.
+                    b = Belief.from_dict(snap)
                     active[event.belief_id] = b
+                # else: old event without snapshot; skip (cannot reconstruct)
             elif event.event_type in ("retracted", "cascade_retracted",
                                       "rejected"):
                 active.pop(event.belief_id, None)
+            elif event.event_type == "rederived":
+                # Re-derivation: belief came back IN.
+                snap = event.details.get("belief_snapshot")
+                if snap:
+                    b = Belief.from_dict(snap)
+                    active[event.belief_id] = b
         return list(active.values())
 
     def when_retracted(self, belief_id: str) -> float | None:
