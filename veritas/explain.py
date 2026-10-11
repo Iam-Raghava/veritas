@@ -51,12 +51,14 @@ class Explainer:
                     f"Contradicted by: '{e.proposition}' "
                     f"(entrenchment {e.details.get('entrenchment', '?')})"
                 )
-        # Check cascade: only count beliefs retracted BECAUSE this belief
-        # was lost (via lost_justification), not all cascades in history.
+        # Check cascade: only count beliefs ACTUALLY retracted because this
+        # belief was lost (via lost_justification), not those that survived
+        # (survived=True) or unrelated cascades.
         cascaded = [
             e for e in self.store.audit
             if e.event_type == "cascade_retracted"
             and e.details.get("lost_justification") == belief_id
+            and not e.details.get("survived", False)
         ]
         if cascaded:
             lines.append(
