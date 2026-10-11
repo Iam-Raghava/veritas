@@ -78,10 +78,10 @@ class VeritasDocumentStore:
             if doc_id in self._doc_ts and ts < self._doc_ts[doc_id]:
                 continue
             # Chunk text if needed (simple sentence split).
-            from ..extract import HeuristicClaimExtractor
-            extractor = HeuristicClaimExtractor()
+            from ..extractor import HeuristicExtractor
+            extractor = HeuristicExtractor()
             claims = extractor.extract_claims(text)
-            texts = [c.text for c in claims] if claims else [text]
+            texts = [c.proposition for c in claims] if claims else [text]
             for chunk_text in texts:
                 belief = self.store.assert_belief(
                     chunk_text,
