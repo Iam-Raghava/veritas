@@ -25,7 +25,7 @@ except ImportError:
     _LANGCHAIN_AVAILABLE = False
     BaseMemory = object  # type: ignore[assignment,misc]
 
-from ..extract import ClaimExtractor, HeuristicClaimExtractor
+from ..extractor import ClaimExtractor, HeuristicClaimExtractor
 from ..store import BeliefStore
 
 
@@ -77,7 +77,7 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
         if human:
             for claim in self.extractor.extract_claims(human):
                 self.store.assert_belief(
-                    claim.text,
+                    claim.proposition,
                     source="user",
                     source_reliability=0.9,
                     ground=True,
@@ -91,7 +91,7 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
             # if contradicted by stronger evidence.
             for claim in self.extractor.extract_claims(ai_out):
                 self.store.assert_belief(
-                    claim.text,
+                    claim.proposition,
                     source="agent",
                     source_reliability=0.6,
                     metadata={
