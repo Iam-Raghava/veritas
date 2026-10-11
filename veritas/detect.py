@@ -120,7 +120,12 @@ def subject_object_parts(proposition: str) -> tuple[str, str] | None:
 # possessive as functional, causing false positives.
 FUNCTIONAL_RELATIONS = frozenset({
     "ceo", "chief executive officer",
+    "cto", "chief technology officer",
+    "cfo", "chief financial officer",
+    "coo", "chief operating officer",
+    "chairman", "chairwoman", "chair",
     "capital",  # of a country/state
+    "population",  # of a place (at a given time)
     "headquarters", "hq",
     "date_of_birth", "birthday", "born",
     "founder",  # typically single, though debatable
@@ -138,7 +143,11 @@ FUNCTIONAL_RELATIONS = frozenset({
     "major",  # primary field of study
 })
 
-def heuristic_contradiction(a: Belief, b: Belief) -> bool:
+def heuristic_contradiction(
+    a: Belief,
+    b: Belief,
+    functional_relations: frozenset[str] | None = None,
+) -> bool:
     """Default detector.
 
     Fires when:
@@ -163,8 +172,10 @@ def heuristic_contradiction(a: Belief, b: Belief) -> bool:
     # 2. Same functional property, different value — but ONLY if the
     # relation is in the functional whitelist. Generic possessives
     # (investor, office, employee) are multi-valued.
+    _fr = (FUNCTIONAL_RELATIONS if functional_relations is None
+           else functional_relations)
     if (pa and pb and pa[0] == pb[0] and pa[1] == pb[1] and pa[2] != pb[2]
-            and pa[1].lower() in FUNCTIONAL_RELATIONS):
+            and pa[1].lower() in _fr):
         return True
 
     # 3. Direct negation (cached parses; no regex per comparison).
@@ -182,5 +193,21 @@ class HeuristicDetector:
 
     name = "heuristic"
 
+    def __init__(
+        self,
+        functional_relations: frozenset[str] | set[str] | None = None,
+    ) -> None:
+        """Optionally override the functional-relation whitelist.
+
+        Pass a custom set to treat domain-specific relations as
+        single-valued (or empty set to disable functional detection).
+        """
+        self._functional_relations = (
+            FUNCTIONAL_RELATIONS if functional_relations is None
+            else frozenset(r.lower() for r in functional_relations)
+        )
+
     def contradicts(self, a: Belief, b: Belief) -> bool:
-        return heuristic_contradiction(a, b)
+        return heuristic_contradiction(
+            a, b, functional_relations=self._functional_relations,
+        )
