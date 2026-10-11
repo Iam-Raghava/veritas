@@ -36,6 +36,11 @@ from .persist_backend import (
     get_backend,
 )
 from .extract import Claim, ClaimExtractor, HeuristicClaimExtractor
+from .extractor import (
+    ExtractedClaim,
+    HeuristicExtractor,
+    StructuredLLMExtractor,
+)
 from .detect_vector import VectorPrefilterDetector
 from .store import BeliefStore
 from .async_store import AsyncBeliefStore
@@ -83,6 +88,9 @@ __all__ = [
     "Claim",
     "ClaimExtractor",
     "HeuristicClaimExtractor",
+    "ExtractedClaim",
+    "HeuristicExtractor",
+    "StructuredLLMExtractor",
     "VectorPrefilterDetector",
     "PersistenceBackend",
     "SQLiteBackend",
