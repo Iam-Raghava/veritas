@@ -96,7 +96,12 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
     # Hold the store lock for the entire save to prevent the
     # "list changed size during iteration" race.
     with store._lock:
-        conn = sqlite3.connect(path)
+        # Use a dedicated connection with WAL mode for multi-process safety.
+        # WAL allows concurrent readers; busy_timeout handles writer contention.
+        conn = sqlite3.connect(path, timeout=5.0, isolation_level=None)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
         try:
             conn.executescript(_SCHEMA)
             # Incremental: upsert beliefs (no full DELETE).
@@ -176,7 +181,9 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
 
 def load(path: str) -> BeliefStore:
     """Rebuild a belief store from a SQLite file."""
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=5.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
     try:
         try:
             row = conn.execute(
