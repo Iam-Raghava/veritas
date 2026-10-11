@@ -35,7 +35,7 @@ from .persist_backend import (
     PostgresBackend,
     get_backend,
 )
-from .extract import Claim, ClaimExtractor, HeuristicClaimExtractor
+from .extractor import Claim, ClaimExtractor, HeuristicClaimExtractor
 from .extractor import (
     ExtractedClaim,
     HeuristicExtractor,
