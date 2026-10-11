@@ -31,11 +31,15 @@ class VeritasChatMemory:
         """Record an agent's claim as a belief."""
         # Ground if from a tool/function, derived if from LLM reasoning.
         is_ground = agent.endswith("_tool") or "function" in agent.lower()
+        # Store the raw message as the proposition (no speaker prefix) so
+        # the heuristic detector's regexes can match it. Speaker identity
+        # goes in metadata, not the proposition text.
         self.store.assert_belief(
-            f"{agent}: {message}",
+            message,
             source=agent,
             source_reliability=reliability,
             ground=is_ground,
+            metadata={"agent": agent},
         )
 
     def get_consistent_view(self) -> list[str]:
