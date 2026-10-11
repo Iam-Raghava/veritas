@@ -162,11 +162,27 @@ class HybridRetriever:
         # TF-IDF ranking (over-fetch for fusion).
         tfidf_hits = self.tfidf.search(search_query, top_k=top_k * 3,
                                        as_of=None)
+        # Filter TF-IDF hits to the temporally-valid set (if as_of given).
+        if as_of is not None:
+            valid_texts = {b.proposition for b in all_beliefs}
+            tfidf_hits = [h for h in tfidf_hits if h["text"] in valid_texts]
         tfidf_rank = {h["text"]: i for i, h in enumerate(tfidf_hits)}
 
         # Dense ranking.
         dense_hits = self._dense_search(search_query, top_k * 3)
-        by_id = {b.id: b for b in self.store.active_beliefs()}
+        # Pre-filter by as_of BEFORE ranking to avoid starvation: if we
+        # filter after the top-k cutoff, valid results beyond the cutoff
+        # are lost even when earlier results are temporally invalid.
+        all_beliefs = self.store.active_beliefs()
+        if as_of is not None:
+            all_beliefs = [
+                b for b in all_beliefs
+                if (b.valid_from if b.valid_from is not None
+                    else float("-inf")) <= as_of <= (
+                        b.valid_until if b.valid_until is not None
+                        else float("inf"))
+            ]
+        by_id = {b.id: b for b in all_beliefs}
         dense_rank = {}
         for i, (did, _sim) in enumerate(dense_hits):
             b = by_id.get(did)
