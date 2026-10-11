@@ -123,7 +123,7 @@ store = BeliefStore()
 
 ceo = store.assert_belief("Acme's CEO is Jane Smith",
                           source="tech blog", source_reliability=0.65)
-store.assert_belief("Jane Smith founded Acme in 2020",
+store.assert_belief("Jane Smith directs Acme's product strategy",
                     source="derived", source_reliability=0.4,
                     justifications=[ceo.id])
 store.assert_belief("Acme's HQ is Austin",
@@ -134,7 +134,7 @@ store.assert_belief("Acme's CEO is John Doe",
                     source="official press release", source_reliability=0.97)
 
 # → "Jane Smith is CEO" retracted (outranked)
-# → "Jane founded Acme" CASCADE-retracted (lost its justification)
+# → "Jane directs product strategy" CASCADE-retracted (lost its justification)
 # → "HQ is Austin" survives (independent)
 # → store.is_consistent() == True, full audit trail available
 
