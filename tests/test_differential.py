@@ -161,9 +161,15 @@ class ReferenceStore:
         else:
             new_ent = new_ent_full
         # Zombie-birth prevention (mirrors Veritas): reject non-ground belief
-        # whose justifications were entirely doomed/pruned.
+        # whose justifications were entirely doomed/pruned — UNLESS its
+        # independent entrenchment still beats the contradictors (strong
+        # newcomer wins on its own merits).
         if not new.ground and not new.justifications and had_justs:
-            return None
+            weakest_contra = min(
+                (self._ent(c) for c in conts), default=float('inf'))
+            if new_ent < weakest_contra:
+                return None
+            # Strong newcomer: proceed (will win below).
         # Reject if any contradictor is unbeatable.
         if any(self._ent(c) >= new_ent for c in conts):
             return None
