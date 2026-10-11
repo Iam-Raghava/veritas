@@ -62,23 +62,29 @@ class VeritasMemoryStore:
         """
         proposition = value.get("proposition", str(value))
         ns_key = self._ns_key(namespace, key)
-        # Check for existing belief at this location.
+        # Temporal supersession: if a belief exists at this location,
+        # retract it (the new value supersedes, not depends on, the old).
+        # Do NOT use justifications=[[old_id]] — that's a category error:
+        # a state update doesn't derive warrant from the prior value.
         old_id = self._index.get((namespace, key))
-        justifications = None
         if old_id:
-            # Link to previous as justification (temporal chain).
-            justifications = [[old_id]]
+            old_belief = self.store.get(old_id)
+            if old_belief and old_belief.is_active:
+                self.store.retract_belief(
+                    old_id,
+                    reason=f"superseded by state update at '{ns_key}'",
+                )
         belief = self.store.assert_belief(
             proposition,
             source=source or f"langgraph:{ns_key}",
             source_reliability=value.get(
                 "reliability", self.source_reliability),
             ground=ground,
-            justifications=justifications,
             metadata={
                 "namespace": list(namespace),
                 "key": key,
                 "ns_key": ns_key,
+                "supersedes": old_id,
                 **{k: v for k, v in value.items()
                    if k not in ("proposition", "reliability")},
             },
