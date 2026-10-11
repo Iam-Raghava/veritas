@@ -92,7 +92,9 @@ def test_horn_or_semantics():
     check("OR: alternative derivation sustains",
           s.get(c.id).is_active)
     check("OR: dead set pruned",
-          s._beliefs[c.id].justifications == [[p2.id]])
+          # Non-destructive: justifications PRESERVED (not pruned).
+          # The dead set [[p1.id]] remains for potential re-derivation.
+          s._beliefs[c.id].justifications == [[p1.id], [p2.id]])
 
 
 def test_ee2_horn_best_proof():
