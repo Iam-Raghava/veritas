@@ -1080,21 +1080,31 @@ class BeliefStore:
 
         # Zombie-birth prevention (BEFORE any mutations): a non-ground
         # belief whose justifications were entirely doomed is an ungrounded
-        # orphan. Reject now, before retracting contradictors, to keep the
-        # operation transactional.
+        # orphan — UNLESS its independent entrenchment (after pruning)
+        # still beats the contradictors. A genuinely strong newcomer
+        # wins on its own merits; the doomed justification is pruned.
         if not new.ground and not new.justifications and normed:
-            self._audit.record(
-                REJECTED,
-                new.id,
-                new.proposition,
-                "rejected: all justifications doomed and belief is not "
-                "grounded; no incumbents touched",
-                {"entrenchment": new_ent,
-                 "pruned_justifications": pruned_justs},
+            # Check if new_ent (independent, post-pruning) beats weakest
+            # contradictor. If yes, allow it (strong newcomer wins).
+            weakest_contra_ent = min(
+                (self.entrenchment_of(c) for c in contradictors),
+                default=float('inf'),
             )
-            self._bump_metric("rejections")
-            self._bump_metric("contradictions_found", len(contradictors))
-            return None
+            if new_ent < weakest_contra_ent:
+                self._audit.record(
+                    REJECTED,
+                    new.id,
+                    new.proposition,
+                    "rejected: all justifications doomed and belief is not "
+                    "grounded; no incumbents touched",
+                    {"entrenchment": new_ent,
+                     "pruned_justifications": pruned_justs},
+                )
+                self._bump_metric("rejections")
+                self._bump_metric("contradictions_found", len(contradictors))
+                return None
+            # Strong newcomer: proceed to entrenchment comparison below
+            # (will win, justifications already pruned).
 
         # All-or-nothing: the newcomer must outrank EVERY contradictor.
         # (Hansson: a screened revision rejects input that cannot beat
@@ -1689,7 +1699,8 @@ class BeliefStore:
                 # B is borrowing warrant — block re-derivation.
                 # (Mirrors _doomed_justifications in assert_belief.)
                 contra_ids = {c.id for c in contradictors}
-                doomed = self._doomed_justifications(b, contra_ids)
+                doomed = self._doomed_justifications(
+                    contra_ids, b.justifications)
                 if doomed:
                     self._audit.record(
                         "rederived_blocked",
