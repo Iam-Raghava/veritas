@@ -263,8 +263,9 @@ class PostgresBackend(PersistenceBackend):
             row = cur.fetchone()
             if row:
                 cfg = json.loads(row[0])
-                store.entrenchment_weights.update(
-                    cfg.get("entrenchment_weights", {}))
+                weights = cfg.get("entrenchment_weights")
+                if weights and store.entrenchment_weights is not None:
+                    store.entrenchment_weights.update(weights)
                 if "policy" in cfg:
                     store.policy = cfg["policy"]
         return store
