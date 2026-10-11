@@ -1,0 +1,144 @@
+# Veritas — Technical Brief for Red-Teaming
+
+**Author:** RAGS · **Repo:** https://github.com/Iam-Raghava/veritas · **Version:** 0.11.0 · **License:** MIT
+**Date:** 2026-10-10 · **Purpose:** Complete technical disclosure for independent review by frontier LLMs. Includes known weaknesses — attack them.
+
+---
+
+## 1. What Veritas Is
+
+Veritas is a **truth maintenance system (TMS) for AI agent memory**. The core problem: LLM agents accumulate facts in append-only memory (conversation history, vector stores, RAG indexes). When facts change, contradict, or expire, nothing retracts them — the agent keeps retrieving stale context and hallucinating on it.
+
+Veritas is the **garbage collector for beliefs**: a principled layer that tracks what the agent believes, why it believes it (justifications), how strongly (entrenchment), and automatically retracts beliefs that are contradicted, superseded, or temporally expired — with full audit trails.
+
+**Formal positioning:** Hansson-style non-prioritized belief-base revision (not classical AGM — AGM operates on closed theories; Veritas operates on finite belief bases, which is the computationally tractable variant). Entrenchment-ordered contraction + JTMS-style dependency propagation.
+
+**What it is NOT:** It is not a new mathematical result. The defensible novelty is the standalone integration and production engineering of belief revision + dependency propagation + temporal validity + auditability + retrieval — as one coherent system for agent memory. Prior art exists for each piece (AGM, JTMS, EPISTEMICS, Mem0, hirn); the gap we verified was that no one had built automated principled belief retraction as infrastructure for LLM agents.
+
+---
+
+## 2. Core Architecture (veritas/ package)
+
+### 2.1 Belief model (`veritas/belief.py`)
+A belief has: `proposition` (text), `source`, `source_reliability` (0-1), `confidence` (0-1), `timestamp`, `valid_from`/`valid_until` (temporal bounds), `justifications` (list of belief IDs this depends on — Horn-clause AND-sets, OR across sets), `ground` (bool — direct observation vs derived).
+
+Key design decisions:
+- **Snapshot semantics:** `snapshot()` returns deep copies. `TimeTravel` and `Explainer` operate on snapshots, not live objects (fixed a bug where live objects leaked).
+- **Timestamp None-semantics:** explicit `timestamp=0.0` is a valid timestamp, not "missing" (fixed a bug where `if not self.timestamp` treated 0.0 as absent).
+
+### 2.2 Entrenchment (`veritas/entrenchment.py`)
+Entrenchment score = f(source_reliability, corroboration count, confidence, recency). Higher entrenchment = harder to dislodge. Used to order contraction: when beliefs contradict, the least entrenched is retracted first.
+
+- **EE2/EE3 caps:** entrenchment is bounded to prevent runaway scores from breaking the ordering (added in v0.3.0 after adversarial review).
+- **Borrowed entrenchment:** derived beliefs inherit a discounted fraction of their justifiers' entrenchment.
+
+### 2.3 Contraction policies (`veritas/policies.py`)
+- `entrenchment` (default): retract least-entrenched first.
+- `conservative`: prefer keeping existing beliefs over new ones.
+- `maxichoice` was documented but unimplemented — **removed** (phantom feature caught in audit).
+
+### 2.4 Contradiction detection (`veritas/detect.py`, `detect_nli.py`, `detect_llm.py`, `detect_semantic.py`)
+Pluggable `Detector` protocol with `contradicts(a, b) -> bool`:
+- **Heuristic** (default): transparent keyword/negation patterns. Fast, explainable, misses paraphrases.
+- **NLI** (`detect_nli.py`): HuggingFace roberta-large-mnli. Verified against real weights (4/4 pairs correct). Heavy (~1.4GB).
+- **LLM judge** (`detect_llm.py`): any OpenAI-compatible API (Claude 5.5, GPT-6, Gemini 4). Fail-open by design (documented).
+- **Semantic** (`detect_semantic.py`): embedding-based.
+- **Commutativity harness:** detectors are tested for `contradicts(a,b) == contradicts(b,a)`.
+- **Constraint exceptions** are audited as `CONSTRAINT_ERROR`, not silently treated as satisfied (fixed in audit).
+
+### 2.5 Dependency propagation (`veritas/store.py`)
+JTMS-style: when a belief is retracted, all beliefs justified by it are cascade-retracted. Supports:
+- **Horn-clause justifications:** AND-sets (all must hold), OR across sets.
+- **Well-foundedness check:** kills circular A↔B justification bypass (v0.4.0).
+- **N-ary constraints:** joint inconsistency across >2 beliefs (v0.5.0).
+- **Doomed simulation:** before asserting, simulates whether the new belief would doom existing justifications.
+- **Invalidation bus:** cache invalidation on state changes.
+- **Ground-observation zombie prevention:** retracted ground facts can't be resurrected by derived beliefs.
+
+### 2.6 Audit (`veritas/audit.py`)
+Append-only log of every state change: assertions, retractions, cascade events, contradictions, constraint checks. Every entry is causally linked. `test_audit_proof.py` verifies completeness — every state change has a corresponding audit entry.
+
+### 2.7 Time travel (`veritas/timetravel.py`)
+Reconstructs belief state at any timestamp via audit replay. `when_retracted(belief_id)`, `history_of(belief_id)`. Returns snapshots, not live objects (fixed in audit). Handles cascade retraction events (fixed in audit).
+
+### 2.8 Explanation (`veritas/explain.py`)
+`why(belief_id)` — why is this believed? `why_retracted(belief_id)` — why was it retracted? Handles cascade events (fixed in audit). Does not touch private store state (fixed in audit).
+
+### 2.9 Persistence (`veritas/persist.py`)
+SQLite backend. Round-trips: beliefs, audit log, config, **policy** (fixed — conservative stores were silently reloading as entrenchment), **detector name** (fixed). Temporal bounds (`valid_from`/`valid_until`) preserved (fixed — `snapshot()`, `to_dict()`, `from_dict()` were all dropping them).
+
+### 2.10 Other modules
+- `veritas/calibration.py`: CalibrationTracker for detector confidence calibration. **Honestly unwired** — documented as manual wiring pattern, not automatic.
+- `veritas/export.py`: `to_json`, `to_dot` (Graphviz), `to_graphml` (Gephi/Cytoscape).
+- `veritas/async_store.py`: AsyncBeliefStore. Has `stats()` wrapper (added in audit).
+- `veritas/cli.py`: Full CLI (init/assert/retract/list/contradictions/audit/stats).
+- `veritas/observability.py`: Metrics — assertions, rejections, retractions, cascades, contradictions, constraint violations, cache hits/misses. **Mostly unwired before audit; now instrumented.**
+- `veritas/integrations/`: langchain, autogen, crewai adapters.
+
+---
+
+## 3. AML Service (aml/ package) — Agent Memory Challenge Entry
+
+**Purpose:** HTTP Add/Search API for the Agent Memory Challenge 2026 Cycle 2, Textual Memory track.
+
+### 3.1 API (`aml/app.py` v0.2.0)
+- `POST /add` — `{items: [{text, timestamp?, source?, confidence?, source_reliability?}]}`. Each item asserted as a ground belief. **Same-source supersession:** if a source submits a newer report contradicting its own older one, the older is retracted as "superseded" (audited), not adjudicated as a contradiction.
+- `POST /search` — `{query, top_k?, as_of?}` → `{evidence: [...]}`. Returns only ACTIVE beliefs.
+- `GET /health` — liveness probe.
+- `GET /ready` — readiness probe (checks DB writability, retriever status, dense model loaded, store consistency).
+- `GET /metrics` — Prometheus-style (request counts, p50/p99 latencies, error rates, uptime, active beliefs).
+- **Production features:** structured logging with X-Request-ID tracing, input limits (MAX_BATCH=1000, MAX_TEXT_LEN=100000), graceful shutdown persists store, unhandled errors return request_id (never bare 500).
+
+### 3.2 Retrieval stack (6 layers)
+1. **CJK-aware TF-IDF** (`aml/retrieval.py`): character bigrams for Chinese/Japanese/Korean (whitespace tokenization returns zero tokens for CJK — caught and fixed). Model-free fallback.
+2. **Dense embeddings** (`aml/dense.py`): ONNX via onnxruntime + tokenizers (no torch). **BGE-M3** (1024-dim, 100+ languages). Adaptive to model inputs (some want token_type_ids, some don't). Empty-input guard (caught a crash). Incremental indexing — only new beliefs embedded (fixed a 7.7s/query bottleneck → 0.6s/query).
+3. **RRF fusion** (`aml/retrieval_hybrid.py`): Reciprocal Rank Fusion combines dense + TF-IDF rankings.
+4. **Query expansion:** pseudo-relevance feedback — learns distinctive terms from top TF-IDF hits ("CEO" → "CEO acme chief executive officer"). Disable via VERITAS_EXPAND=0.
+5. **Cross-encoder rerank** (`aml/rerank.py`): bge-reranker-base (quantized ONNX, 279MB) rescores top-20 candidates. Verified separation: relevant 6.4/3.9 vs irrelevant -3.1.
+6. **Deduplication:** near-identical texts collapsed.
+
+**Graceful degradation chain:** rerank → hybrid → TF-IDF. Never crashes on missing models.
+
+### 3.3 Deployment
+- `aml/Dockerfile`: bundles BGE-M3 + reranker at build time from ONNX community mirror.
+- `aml/docker-compose.yml`: one-command deploy with healthchecks on /ready.
+- `aml/fly.toml`: fly.io config.
+- `aml/requirements.txt`: fastapi, uvicorn, onnxruntime, tokenizers, numpy.
+
+---
+
+## 4. Testing Regime
+
+**E2E gate** (`tests/verify_e2e.sh`): **33/33 green.** Covers package integrity, all unit suites, CLI, persistence, deployment, publish-clean.
+
+**Test suites:**
+- Core: 40/40. Adversarial: 14/14. Differential (vs reference implementation): clean. Properties, mutation (7/7 mutants killed), determinism (frozen-time replay byte-identical), README doctest (3/3), README sync (58/58 — version/exports/test-files/changelog match code).
+- `test_release_gate.py` (13/13): load (2000 adds @ 6000/s, 200 searches @ 40/s), soak (memory bounded), chaos (corrupt/empty DB raise cleanly, SQL injection neutralized), API contract validation.
+- `test_hybrid_retrieval.py` (12/12): CJK tokenizer, hybrid dense+TF-IDF, RRF.
+- `test_aml_service.py`: governance + temporal as_of behavior.
+
+**Stress testing (to failure):**
+- 200,000 beliefs: 10.6s, 324MB, no OOM. Linear scaling (~1.6KB/belief).
+- 5,000-deep cascade: built 63s, retracted all in 5s. 10,000 fan-out: 18s cascade. Correct.
+- 500-contradiction storm: exactly 1 winner (highest reliability), consistent.
+- 16-thread concurrent writes: 0 errors, consistent.
+- Dense: 1MB text OK (tokenizer truncates), 5,000-batch OK. **Found:** empty list crashed ONNX → fixed.
+- **Found:** dense rebuild re-embedded all beliefs per search (7.7s/query) → incremental indexing (0.6s/query).
+- SQLite 50k: save/load 1.1s each, 16.8MB.
+
+**Audit history:** Two rounds of adversarial review by frontier models (v0.3.0–v0.5.0) found real bugs, all fixed. Full line-by-line audit (2026-10-10) found 9 real bugs, all fixed.
+
+---
+
+## 5. Known Limitations and Weaknesses (Attack These)
+
+1. **Deep-chain builds are O(N²)** (~12ms/assert at depth 5000). Acceptable for flat fact workloads, but a genuine algorithmic limit. No indexing on justification chains.
+2. **Heuristic detector misses paraphrases.** The default detector is keyword-based. NLI/LLM detectors exist but aren't the default (cost/latency).
+3. **CalibrationTracker is unwired.** Documented as manual pattern, not automatic. Detector confidence scores are uncalibrated.
+4. **No chunking for long Add items.** Long documents get truncated by the tokenizer. Each Add item is one belief.
+5. **Query expansion is TF-IDF-only.** Doesn't use embeddings for expansion terms. Could miss semantic expansions.
+6. **Reranker is EN/ZH bilingual**, not truly multilingual like BGE-M3. Other languages get weaker reranking.
+7. **TF-IDF index rebuilds are O(N)** on generation change. Fine at 200k, unknown beyond.
+8. **No distributed operation.** Single-process, SQLite. No sharding, no replication.
+9. **Ent
+...[truncated 2388 chars]
