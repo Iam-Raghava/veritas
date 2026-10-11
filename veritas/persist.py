@@ -87,58 +87,78 @@ def _resolve_detector(name: str) -> ContradictionFn:
 
 
 def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> None:
-    """Persist a belief store to a SQLite file (created if missing)."""
-    conn = sqlite3.connect(path)
-    try:
-        conn.executescript(_SCHEMA)
-        conn.execute("DELETE FROM beliefs")
-        conn.execute("DELETE FROM audit")
-        conn.execute("DELETE FROM meta")
+    """Persist a belief store to a SQLite file (created if missing).
 
-        for b in store.all_beliefs():
+    Uses incremental updates (INSERT OR REPLACE) instead of full table
+    wipes, and holds the store lock during the entire save to prevent
+    concurrent mutations from corrupting the iteration.
+    """
+    # Hold the store lock for the entire save to prevent the
+    # "list changed size during iteration" race.
+    with store._lock:
+        conn = sqlite3.connect(path)
+        try:
+            conn.executescript(_SCHEMA)
+            # Incremental: upsert beliefs (no full DELETE).
+            current_ids = set()
+            for b in store.all_beliefs():
+                current_ids.add(b.id)
+                conn.execute(
+                    "INSERT OR REPLACE INTO beliefs VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        b.id,
+                        b.proposition,
+                        b.confidence,
+                        b.source,
+                        b.source_reliability,
+                        _safe_dumps(b.justifications),
+                        b.timestamp,
+                        b.status,
+                        _safe_dumps(b.metadata),
+                        1 if b.ground else 0,
+                        b.valid_from,
+                        b.valid_until,
+                    ),
+                )
+            # Remove beliefs that are no longer in the store (e.g., if the
+            # store was cleared or beliefs were purged).
+            if current_ids:
+                placeholders = ",".join("?" for _ in current_ids)
+                conn.execute(
+                    f"DELETE FROM beliefs WHERE id NOT IN ({placeholders})",
+                    tuple(current_ids),
+                )
+            else:
+                conn.execute("DELETE FROM beliefs")
+            # Audit: append-only; INSERT OR IGNORE skips already-persisted
+            # seq numbers (idempotent on retry).
+            for e in store.audit:
+                conn.execute(
+                    "INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?,?,?)",
+                    (
+                        e.seq,
+                        e.timestamp,
+                        e.event_type,
+                        e.belief_id,
+                        e.proposition,
+                        e.reason,
+                        _safe_dumps(e.details),
+                    ),
+                )
             conn.execute(
-                "INSERT INTO beliefs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    b.id,
-                    b.proposition,
-                    b.confidence,
-                    b.source,
-                    b.source_reliability,
-                    _safe_dumps(b.justifications),
-                    b.timestamp,
-                    b.status,
-                    _safe_dumps(b.metadata),
-                    1 if b.ground else 0,
-                    b.valid_from,
-                    b.valid_until,
-                ),
+                "INSERT OR REPLACE INTO meta VALUES (?,?)",
+                ("config", json.dumps({
+                    "detector_name": detector_name,
+                    "entrenchment_weights": store.entrenchment_weights,
+                    "survival_threshold": store.survival_threshold,
+                    "policy": store.policy,
+                    "schema_version": SCHEMA_VERSION,
+                })),
             )
-        for e in store.audit:
-            conn.execute(
-                "INSERT INTO audit VALUES (?,?,?,?,?,?,?)",
-                (
-                    e.seq,
-                    e.timestamp,
-                    e.event_type,
-                    e.belief_id,
-                    e.proposition,
-                    e.reason,
-                    _safe_dumps(e.details),
-                ),
-            )
-        conn.execute(
-            "INSERT INTO meta VALUES (?,?)",
-            ("config", json.dumps({
-                "detector_name": detector_name,
-                "entrenchment_weights": store.entrenchment_weights,
-                "survival_threshold": store.survival_threshold,
-                "policy": store.policy,
-                "schema_version": SCHEMA_VERSION,
-            })),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def load(path: str) -> BeliefStore:
