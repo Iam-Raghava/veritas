@@ -63,22 +63,27 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
         self, inputs: dict[str, Any], outputs: dict[str, Any]
     ) -> None:
         # Extract human input and AI output as beliefs.
+        # Store raw text as proposition (no "User said:" prefix) so the
+        # heuristic detector's regexes can match. Speaker role goes in
+        # metadata.
         human = inputs.get("input", "")
         ai_out = outputs.get("output", "")
         if human:
             self.store.assert_belief(
-                f"User said: {human}",
+                human,
                 source="user",
                 source_reliability=0.9,
                 ground=True,
+                metadata={"role": "user"},
             )
         if ai_out:
             # AI outputs are derived, not ground — they can be retracted
             # if contradicted by stronger evidence.
             self.store.assert_belief(
-                f"Agent concluded: {ai_out}",
+                ai_out,
                 source="agent",
                 source_reliability=0.6,
+                metadata={"role": "agent"},
             )
 
     def clear(self) -> None:
