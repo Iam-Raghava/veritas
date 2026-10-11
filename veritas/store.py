@@ -593,6 +593,109 @@ class BeliefStore:
                                     if vid in active_ids]
             return result
 
+    def _simulate_with_contra_retracted(
+        self, newcomer: Belief, contra_ids: set[str]
+    ) -> set[str] | None:
+        """Simulate: add newcomer, retract contradictors, check constraints.
+
+        Returns the set of IDs that would be retracted by constraints, or
+        None if the newcomer itself would be retracted (meaning: reject the
+        newcomer without touching contradictors).
+
+        This is used BEFORE the actual contradiction retraction to ensure
+        transactional semantics across the contradiction+constraint pipeline.
+        """
+        # Hypothetical active set: current active - contradictors + newcomer.
+        # (Newcomer not yet in _beliefs, so we handle it specially.)
+        sim_active = {
+            bid for bid, b in self._beliefs.items()
+            if b.is_active and bid not in contra_ids
+        }
+        # For entrenchment ordering, we need values for all in sim_active
+        # plus the newcomer. Use current state (unmutated).
+        ent: dict[str, float] = {}
+        for bid in sim_active:
+            ent[bid] = self.entrenchment_of(self._beliefs[bid])
+        # Newcomer entrenchment (not in store yet, compute directly).
+        # We need to approximate; use the passed new_ent from caller.
+        # Actually, we'll compute it via a temporary approach: the caller
+        # should have computed new_ent already. For simplicity, we use
+        # a high value to ensure newcomer is not chosen as weakest unless
+        # constraints force it. Better: compute via entrenchment_of on a
+        # mock. Simpler: skip newcomer from ent dict; constraints that
+        # target newcomer will be caught by ID matching.
+        
+        # Simulate constraint check on hypothetical state.
+        # We need snapshots; for newcomer, use its snapshot.
+        def _check_on(hypo_active: set[str], include_newcomer: bool):
+            snaps = []
+            for bid in hypo_active:
+                if bid == newcomer.id and include_newcomer:
+                    snaps.append(newcomer.snapshot())
+                elif bid in self._beliefs:
+                    snaps.append(self._beliefs[bid].snapshot())
+            result: dict[str, list[str]] = {}
+            for name, check in self._constraints.items():
+                try:
+                    violated = check(snaps)
+                except Exception:
+                    continue
+                if violated:
+                    # Filter to hypo_active
+                    result[name] = [v for v in violated
+                                    if v in hypo_active or
+                                    (v == newcomer.id and include_newcomer)]
+            return result
+
+        # Include newcomer in the hypothetical active set.
+        hypo = set(sim_active)
+        hypo.add(newcomer.id)
+        
+        to_retract: set[str] = set()
+        for _ in range(len(hypo) + 1):
+            violations = _check_on(hypo, True)
+            viol_ids: set[str] = set()
+            for vids in violations.values():
+                viol_ids.update(vids)
+            if not viol_ids:
+                break
+            # Find weakest by entrenchment. For newcomer, compute on the fly.
+            def _ent_for(bid: str) -> float:
+                if bid == newcomer.id:
+                    # Compute newcomer entrenchment (not in store).
+                    from .entrenchment import entrenchment
+                    return entrenchment(
+                        newcomer, self.entrenchment_weights,
+                        n_justifications=len(newcomer.justifications))
+                return ent.get(bid, float('inf'))
+            weakest = min(viol_ids, key=lambda bid: (_ent_for(bid), bid))
+            to_retract.add(weakest)
+            hypo.discard(weakest)
+            if weakest == newcomer.id:
+                # Newcomer must go; abort.
+                return None
+            # Simulate cascade for the retracted belief.
+            changed = True
+            while changed:
+                changed = False
+                for bid in list(hypo):
+                    if bid == newcomer.id:
+                        continue
+                    b = self._beliefs.get(bid)
+                    if b is None or b.ground or not b.justifications:
+                        continue
+                    has_valid = any(
+                        all(pid in hypo for pid in jset)
+                        for jset in b.justifications
+                    )
+                    if not has_valid:
+                        to_retract.add(bid)
+                        hypo.discard(bid)
+                        changed = True
+                        if bid == newcomer.id:
+                            return None
+        return to_retract
+
     def _simulate_constraint_contraction(
         self, newcomer_id: str | None
     ) -> set[str] | None:
@@ -940,6 +1043,28 @@ class BeliefStore:
             return None
 
         self._bump_metric("contradictions_found", len(contradictors))
+        # TRANSACTIONAL: simulate constraint satisfaction BEFORE retracting
+        # contradictors. If the newcomer would be rejected by constraints
+        # (after contradictor retraction), abort now without mutating.
+        # This preserves Hansson's postulate: rejected input leaves the
+        # belief base invariant.
+        contra_ids = {b.id for b in contradictors}
+        sim_result = self._simulate_with_contra_retracted(new, contra_ids)
+        if sim_result is None:
+            # Newcomer would not survive constraints; reject without
+            # touching contradictors.
+            self._audit.record(
+                REJECTED,
+                new.id,
+                new.proposition,
+                "rejected: constraint simulation shows newcomer cannot "
+                "survive; contradictors untouched",
+                {"entrenchment": new_ent,
+                 "n_contradictors": len(contradictors)},
+            )
+            self._bump_metric("rejections")
+            return None
+
         # Contract weakest-first, with cascading propagation.
         retracted: list[Belief] = []
         for old in weakest_first:
@@ -1335,6 +1460,11 @@ class BeliefStore:
         Classical TMS behavior: when a premise comes back IN, dependents
         whose justifications are now satisfiable return to IN automatically.
         This is only possible because cascades are non-destructive.
+
+        CRITICAL: re-derivation must check for contradictors. A belief that
+        was retracted due to contradiction (not just cascade) must NOT be
+        blindly revived — it must win an entrenchment adjudication against
+        current active contradictors, or stay retracted.
         """
         # Find retracted beliefs that depend on this premise.
         for b in self._beliefs.values():
@@ -1349,21 +1479,51 @@ class BeliefStore:
             if not depends:
                 continue
             # Is it now well-founded? (All premises in some AND-set active.)
-            if self._has_ground_path_locked(b.id):
-                b.status = "active"
-                self._index(b)
-                self._ent_gen += 1
-                self._audit.record(
-                    "rederived",
-                    b.id,
-                    b.proposition,
-                    f"re-derived: premise '{belief_id}' re-asserted, "
-                    f"justification now satisfiable",
-                    {"premise": belief_id,
-                     "belief_snapshot": b.to_dict()},
-                )
-                # Recursively re-derive ITS dependents.
-                self._try_rederive_dependents(b.id)
+            if not self._has_ground_path_locked(b.id):
+                continue
+            # CONTRADICTION CHECK: if active contradictors exist, the
+            # re-derived belief must outrank them via entrenchment.
+            # Otherwise we'd revive a contradicted belief and break
+            # consistency.
+            contradictors = self._contradictors_of_locked(b)
+            if contradictors:
+                b_ent = self.entrenchment_of(b)
+                # Must beat EVERY contradictor (screened revision).
+                if any(self.entrenchment_of(c) >= b_ent
+                       for c in contradictors):
+                    # Outranked: stay retracted.
+                    self._audit.record(
+                        "rederived_blocked",
+                        b.id,
+                        b.proposition,
+                        f"re-derivation blocked: contradicted by stronger "
+                        f"active belief",
+                        {"premise": belief_id,
+                         "n_contradictors": len(contradictors)},
+                    )
+                    continue
+                # Outranks all: retract the contradictors (like assert_belief).
+                for c in contradictors:
+                    self._retract_single(
+                        c.id,
+                        f"contradicted by re-derived '{b.proposition}'",
+                        cascade=True,
+                    )
+            # Safe to re-derive.
+            b.status = "active"
+            self._index(b)
+            self._ent_gen += 1
+            self._audit.record(
+                "rederived",
+                b.id,
+                b.proposition,
+                f"re-derived: premise '{belief_id}' re-asserted, "
+                f"justification now satisfiable",
+                {"premise": belief_id,
+                 "belief_snapshot": b.to_dict()},
+            )
+            # Recursively re-derive ITS dependents.
+            self._try_rederive_dependents(b.id)
 
     @_locked
     def stats(self) -> dict:
