@@ -16,7 +16,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from veritas import BeliefStore
-from veritas.storage import InMemoryBackend, SQLiteStorageBackend
+from veritas.persist_backend import SQLiteBackend, get_backend
 
 
 def test_rederivation_blocked_by_contradiction():
@@ -129,21 +129,18 @@ def test_assert_batch_topological():
 
 
 def test_storage_backend():
-    """StorageBackend protocol works."""
+    """Persistence backend protocol works."""
     s = BeliefStore()
     b = s.assert_belief("Backend test", source="x", ground=True)
-    # InMemory.
-    mem = InMemoryBackend(s)
-    assert mem.get_belief(b.id) is not None
-    assert len(mem.query_active()) >= 1
-    # SQLite.
+    # SQLite via get_backend.
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
     try:
-        sql = SQLiteStorageBackend(path, s)
-        sql.save_belief(b)
-        # (InMemory query still works.)
-        assert sql.get_belief(b.id) is not None
+        backend = get_backend(f"sqlite:///{path}")
+        assert isinstance(backend, SQLiteBackend)
+        backend.save(s)
+        s2 = backend.load()
+        assert len(s2.active_beliefs()) >= 1
     finally:
         os.unlink(path)
         for suffix in ("-wal", "-shm"):
