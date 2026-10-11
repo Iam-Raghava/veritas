@@ -68,16 +68,19 @@ class ClaimExtractor(Protocol):
 from veritas.extract import HeuristicClaimExtractor as _HeuristicBase
 
 
-class HeuristicExtractor(_HeuristicBase):
+class HeuristicExtractor:
     """Rule-based extractor with full ExtractedClaim schema.
 
-    Extends HeuristicClaimExtractor to emit ExtractedClaim objects.
+    Wraps HeuristicClaimExtractor to emit ExtractedClaim objects.
     """
+
+    def __init__(self, min_length: int = 3) -> None:
+        self._base = _HeuristicBase(min_length=min_length)
 
     def extract_claims(
         self, text: str, source: str = "agent",
     ) -> list[ExtractedClaim]:
-        base_claims = super().extract_claims(text)
+        base_claims = self._base.extract_claims(text)
         return [
             ExtractedClaim(
                 proposition=c.text,
@@ -92,6 +95,10 @@ class HeuristicExtractor(_HeuristicBase):
             )
             for c in base_claims
         ]
+
+    def extract_propositions(self, text: str) -> list[str]:
+        """Convenience: return just the claim texts."""
+        return self._base.extract_propositions(text)
 
 
 class StructuredLLMExtractor:
