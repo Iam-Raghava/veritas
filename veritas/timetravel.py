@@ -51,9 +51,13 @@ class TimeTravel:
                     b = Belief.from_dict(snap)
                     active[event.belief_id] = b
                 # else: old event without snapshot; skip (cannot reconstruct)
-            elif event.event_type in ("retracted", "cascade_retracted",
-                                      "rejected"):
+            elif event.event_type in ("retracted", "rejected"):
                 active.pop(event.belief_id, None)
+            elif event.event_type == "cascade_retracted":
+                # Only pop if actually retracted; survived=True means the
+                # belief kept an alternative proof and stayed active.
+                if not event.details.get("survived", False):
+                    active.pop(event.belief_id, None)
             elif event.event_type == "rederived":
                 # Re-derivation: belief came back IN.
                 snap = event.details.get("belief_snapshot")
