@@ -157,6 +157,14 @@ class AddItem(BaseModel):
     source: str = Field(default="aml", max_length=500)
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     source_reliability: float = Field(default=0.6, ge=0.0, le=1.0)
+    # Horn-clause justifications: list of AND-sets (OR across sets).
+    # Enables TMS dependency tracking in the challenge entry.
+    justifications: list[str] | list[list[str]] | None = None
+    # Ground: True for direct observations, False for derived inferences.
+    ground: bool = True
+    # If True, split multi-sentence text into atomic claims via extractor.
+    # Default: auto-detect (split if >1 sentence).
+    extract_claims: bool | None = None
 
 
 class AddRequest(BaseModel):
@@ -175,42 +183,62 @@ class SearchRequest(BaseModel):
 @app.post("/add")
 def add(req: AddRequest, request: Request) -> dict:
     from veritas.belief import Belief
+    from veritas.extractor import HeuristicExtractor
 
     rid = request.state.rid
     t0 = time.time()
     _metrics["add_requests"] += 1
+    # Claim extractor for multi-sentence items (lazy singleton).
+    extractor = getattr(add, "_extractor", None)
+    if extractor is None:
+        extractor = HeuristicExtractor()
+        add._extractor = extractor
     try:
         added = rejected = superseded = 0
         active_before = len(store.active_beliefs())
         for item in req.items:
             ts = item.timestamp if item.timestamp is not None else time.time()
-            probe = Belief(
-                proposition=item.text,
-                source=item.source,
-                timestamp=ts,
-                ground=True,
-                valid_from=ts,
-            )
-            for c in store.contradictors_of(probe):
-                if c.source == item.source and c.timestamp < ts:
-                    store.retract_belief(
-                        c.id,
-                        reason="superseded by newer report from same source",
-                    )
-                    superseded += 1
-            res = store.assert_belief(
-                item.text,
-                confidence=item.confidence,
-                source=item.source,
-                source_reliability=item.source_reliability,
-                timestamp=ts,
-                ground=True,
-                valid_from=ts,
-            )
-            if res is None:
-                rejected += 1
-            else:
-                added += 1
+            # Claim extraction: split multi-sentence text into atomic claims
+            # so each is individually evaluable by detectors.
+            texts = [item.text]
+            should_extract = item.extract_claims
+            if should_extract is None:
+                # Auto-detect: extract if multiple sentences.
+                should_extract = len(extractor.extract_claims(item.text)) > 1
+            if should_extract:
+                claims = extractor.extract_claims(item.text, source=item.source)
+                texts = [c.proposition for c in claims if c.proposition]
+                if not texts:
+                    texts = [item.text]
+            for text in texts:
+                probe = Belief(
+                    proposition=text,
+                    source=item.source,
+                    timestamp=ts,
+                    ground=item.ground,
+                    valid_from=ts,
+                )
+                for c in store.contradictors_of(probe):
+                    if c.source == item.source and c.timestamp < ts:
+                        store.retract_belief(
+                            c.id,
+                            reason="superseded by newer report from same source",
+                        )
+                        superseded += 1
+                res = store.assert_belief(
+                    text,
+                    confidence=item.confidence,
+                    source=item.source,
+                    source_reliability=item.source_reliability,
+                    timestamp=ts,
+                    ground=item.ground,
+                    justifications=item.justifications,
+                    valid_from=ts,
+                )
+                if res is None:
+                    rejected += 1
+                else:
+                    added += 1
         active_after = len(store.active_beliefs())
         retracted = max(0, active_before + added - active_after - superseded)
         persist.save(store, DB_PATH, detector_name=store.detector_name)
