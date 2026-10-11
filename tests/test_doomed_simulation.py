@@ -57,8 +57,10 @@ def trial(rng, trial_no):
 
     # Membership oracle: for a sample of beliefs, the simulation's
     # doomed-membership must match the real cascade's retraction set.
+    # _doomed_justifications expects Horn clauses (list of lists), not a
+    # flat list — wrap each ID in its own singleton AND-set.
     probe = rng.sample(active, k=min(12, len(active)))
-    sim_doomed = s._doomed_justifications(targets, probe)
+    sim_doomed = s._doomed_justifications(targets, [[p] for p in probe])
     for pid in targets:
         if pid in probe and pid not in sim_doomed:
             return f"target {pid} not reported doomed (trial {trial_no})"
