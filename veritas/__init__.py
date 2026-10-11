@@ -29,6 +29,14 @@ from .entrenchment import (
     recency_score,
 )
 from .persist import load, register_detector, save
+from .persist_backend import (
+    PersistenceBackend,
+    SQLiteBackend,
+    PostgresBackend,
+    get_backend,
+)
+from .extract import Claim, ClaimExtractor, HeuristicClaimExtractor
+from .detect_vector import VectorPrefilterDetector
 from .store import BeliefStore
 from .async_store import AsyncBeliefStore
 from .observability import Metrics
@@ -72,4 +80,12 @@ __all__ = [
     "save",
     "load",
     "register_detector",
+    "Claim",
+    "ClaimExtractor",
+    "HeuristicClaimExtractor",
+    "VectorPrefilterDetector",
+    "PersistenceBackend",
+    "SQLiteBackend",
+    "PostgresBackend",
+    "get_backend",
 ]
