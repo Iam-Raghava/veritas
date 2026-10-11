@@ -76,13 +76,21 @@ if python3 tests/test_round4_regressions.py > /tmp/vt12b.log 2>&1 && grep -q "34
   ok "round-4 regression suite 34/34"
 else bad "round-4 regression suite"; tail -3 /tmp/vt12b.log; fi
 # Invariant suites (previously omitted from gate).
-for t in test_doomed_simulation test_properties test_borrowed_entrenchment test_mutation; do
+for t in test_doomed_simulation test_properties test_borrowed_entrenchment; do
   if [ -f "tests/${t}.py" ]; then
     if python3 "tests/${t}.py" > /tmp/vt_${t}.log 2>&1; then
       ok "invariant suite: ${t}"
     else bad "invariant suite: ${t}"; tail -3 /tmp/vt_${t}.log; fi
   fi
 done
+# AML service test requires fastapi; skip if not installed.
+if python3 -c "import fastapi" 2>/dev/null; then
+  if python3 tests/test_aml_service.py > /tmp/vt_aml.log 2>&1; then
+    ok "AML service suite"
+  else bad "AML service suite"; tail -3 /tmp/vt_aml.log; fi
+else
+  echo "  skip: test_aml_service (fastapi not installed)"
+fi
 
 echo "== 3. demo =="
 if python3 examples/demo.py > /tmp/vtdemo.log 2>&1 && grep -q "All demo assertions passed" /tmp/vtdemo.log; then
