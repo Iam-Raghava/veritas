@@ -65,14 +65,42 @@ def _tfidf_similarity(a: str, b: str) -> float:
 
 
 def _has_opposition(a: str, b: str) -> bool:
-    """Check for semantic opposition: negation or antonym mismatch."""
+    """Check for semantic opposition: negation or antonym mismatch.
+
+    Negation must apply to the SAME predicate, not just appear anywhere.
+    "Cluster has no errors" vs "Cluster is operational" both describe a
+    healthy cluster — the "no" doesn't create opposition. We check if the
+    non-negation tokens overlap significantly AND the negation status
+    differs on the overlapping core.
+    """
     ta = set(_tokens(a))
     tb = set(_tokens(b))
-    # Negation asymmetry: one has negation, other doesn't
+    # Remove negation words to get the core content.
+    core_a = ta - NEGATIONS
+    core_b = tb - NEGATIONS
+    # If cores don't overlap much, they're about different things.
+    if not core_a or not core_b:
+        return False
+    overlap = len(core_a & core_b) / max(len(core_a), len(core_b))
+    if overlap < 0.5:
+        return False
+    # Cores overlap: now check if negation flips the meaning.
+    # Only flag opposition if the negated version is a direct polarity
+    # flip of the same proposition, not just "no X" vs "Y".
     a_neg = bool(ta & NEGATIONS)
     b_neg = bool(tb & NEGATIONS)
     if a_neg != b_neg:
-        return True
+        # Heuristic: if the only difference is a negation word and the
+        # rest is nearly identical, it's likely a true contradiction.
+        # If cores differ substantially, the negation is probably
+        # describing absence ("no errors") not opposition.
+        union = core_a | core_b
+        jaccard = len(core_a & core_b) / len(union) if union else 0
+        if jaccard > 0.8:
+            return True
+        # Low overlap + negation asymmetry: not a contradiction.
+        # ("has no errors" vs "is operational" — both healthy.)
+        return False
     # Antonym pair: a has X, b has antonym(X)
     for w in ta:
         if w in ANTONYMS and ANTONYMS[w] in tb:
