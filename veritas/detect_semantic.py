@@ -84,11 +84,11 @@ def _has_opposition(a: str, b: str) -> bool:
     overlap = len(core_a & core_b) / max(len(core_a), len(core_b))
     if overlap < 0.5:
         return False
-    # Cores overlap: now check if negation flips the meaning.
-    # Only flag opposition if the negated version is a direct polarity
-    # flip of the same proposition, not just "no X" vs "Y".
+    # Cores overlap: now check for opposition via negation OR antonyms.
+    # Both are checked independently (not mutually exclusive).
     a_neg = bool(ta & NEGATIONS)
     b_neg = bool(tb & NEGATIONS)
+    neg_opposition = False
     if a_neg != b_neg:
         # Heuristic: if the only difference is a negation word and the
         # rest is nearly identical, it's likely a true contradiction.
@@ -97,15 +97,17 @@ def _has_opposition(a: str, b: str) -> bool:
         union = core_a | core_b
         jaccard = len(core_a & core_b) / len(union) if union else 0
         if jaccard > 0.8:
-            return True
-        # Low overlap + negation asymmetry: not a contradiction.
+            neg_opposition = True
+        # else: Low overlap + negation asymmetry: not a contradiction.
         # ("has no errors" vs "is operational" — both healthy.)
-        return False
-    # Antonym pair: a has X, b has antonym(X)
+    # Antonym pair: a has X, b has antonym(X). Checked INDEPENDENTLY of
+    # negation (not dead code).
+    antonym_opposition = False
     for w in ta:
         if w in ANTONYMS and ANTONYMS[w] in tb:
-            return True
-    return False
+            antonym_opposition = True
+            break
+    return neg_opposition or antonym_opposition
 
 
 _embedding_model = None  # lazy singleton
