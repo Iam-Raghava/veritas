@@ -123,12 +123,25 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
                 )
             # Remove beliefs that are no longer in the store (e.g., if the
             # store was cleared or beliefs were purged).
+            # Chunked to avoid SQLITE_MAX_VARIABLE_NUMBER limit (999 on old
+            # SQLite, 32766 on 3.32+). 500 per chunk is safe everywhere.
             if current_ids:
-                placeholders = ",".join("?" for _ in current_ids)
+                ids_list = list(current_ids)
+                # Use a temp table to avoid huge IN clauses.
+                conn.execute("CREATE TEMP TABLE IF NOT EXISTS live_ids "
+                             "(id TEXT PRIMARY KEY)")
+                conn.execute("DELETE FROM live_ids")
+                for i in range(0, len(ids_list), 500):
+                    chunk = ids_list[i:i+500]
+                    conn.executemany(
+                        "INSERT OR IGNORE INTO live_ids VALUES (?)",
+                        [(bid,) for bid in chunk],
+                    )
                 conn.execute(
-                    f"DELETE FROM beliefs WHERE id NOT IN ({placeholders})",
-                    tuple(current_ids),
+                    "DELETE FROM beliefs WHERE id NOT IN "
+                    "(SELECT id FROM live_ids)"
                 )
+                conn.execute("DELETE FROM live_ids")
             else:
                 conn.execute("DELETE FROM beliefs")
             # Audit: append-only; INSERT OR IGNORE skips already-persisted
