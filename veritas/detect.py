@@ -113,13 +113,39 @@ def subject_object_parts(proposition: str) -> tuple[str, str] | None:
     return None
 
 
+# Whitelist of relations that are functionally single-valued (a subject
+# can have only one). "X's CEO is A" vs "X's CEO is B" is a contradiction.
+# But "X's investor is A" vs "X's investor is B" is NOT — investors are
+# multi-valued. Without this whitelist, the heuristic treats every
+# possessive as functional, causing false positives.
+FUNCTIONAL_RELATIONS = frozenset({
+    "ceo", "chief executive officer",
+    "capital",  # of a country/state
+    "headquarters", "hq",
+    "date_of_birth", "birthday", "born",
+    "founder",  # typically single, though debatable
+    "spouse", "husband", "wife",  # legally single in most jurisdictions
+    "president",  # of a country (at a given time)
+    "os", "operating system",  # a device/user has one at a time
+    "location", "address", "residence",  # primary location
+    "phone", "phone number", "email", "email address",  # contact (primary)
+    "age",  # single value
+    "gender", "sex",
+    "nationality", "citizenship",  # primary
+    "occupation", "job", "title", "role",  # primary role
+    "company", "employer",  # primary employer
+    "school", "university", "college",  # current
+    "major",  # primary field of study
+})
+
 def heuristic_contradiction(a: Belief, b: Belief) -> bool:
     """Default detector.
 
     Fires when:
       1. Either belief explicitly names the other in metadata["contradicts"].
       2. Both assign different objects to the same (subject, relation)
-         functional property ("X's CEO is A" vs "X's CEO is B").
+         functional property ("X's CEO is A" vs "X's CEO is B"), where the
+         relation is in FUNCTIONAL_RELATIONS.
       3. Direct negation: "S is O" vs "S is not O", "S will O" vs
          "S will not O".
     """
@@ -134,8 +160,11 @@ def heuristic_contradiction(a: Belief, b: Belief) -> bool:
 
     pa, pb = functional_parts(a.proposition), functional_parts(b.proposition)
 
-    # 2. Same functional property, different value.
-    if pa and pb and pa[0] == pb[0] and pa[1] == pb[1] and pa[2] != pb[2]:
+    # 2. Same functional property, different value — but ONLY if the
+    # relation is in the functional whitelist. Generic possessives
+    # (investor, office, employee) are multi-valued.
+    if (pa and pb and pa[0] == pb[0] and pa[1] == pb[1] and pa[2] != pb[2]
+            and pa[1].lower() in FUNCTIONAL_RELATIONS):
         return True
 
     # 3. Direct negation (cached parses; no regex per comparison).
