@@ -99,10 +99,14 @@ class BeliefStore:
         if detector is not None:
             base_fn = as_function(detector)
             self.detector_name = getattr(detector, "name", "custom")
+            # Keep the detector object for pre-filtering (e.g.,
+            # VectorPrefilterDetector.find_contradictors).
+            self.detector = detector
         else:
             raw_fn = contradiction_fn or heuristic_contradiction
             # Always wrap for commutativity (symmetric contradiction).
             base_fn = as_function(raw_fn)
+            self.detector = None
             self.detector_name = (
                 "heuristic"
                 if raw_fn is heuristic_contradiction
@@ -406,6 +410,16 @@ class BeliefStore:
         independent of hash randomization.
         """
         if not self._indexed:
+            # If the detector has its own candidate pre-filter (e.g.,
+            # VectorPrefilterDetector.find_contradictors), use it directly.
+            # This avoids O(N) scans for expensive detectors.
+            _det = getattr(self, "detector", None)
+            find_fn = getattr(_det, "find_contradictors", None) if _det else None
+            if callable(find_fn):
+                try:
+                    return find_fn(belief)
+                except Exception:
+                    pass  # fall through to brute force
             # Custom detector: use vector pre-filter if available,
             # else exact scan (index covers heuristic patterns only).
             candidates = self._vector_candidates(belief)
@@ -1216,15 +1230,15 @@ class BeliefStore:
         self._bump_metric("assertions")
         return new.snapshot()
 
+    @_locked
     def assert_batch(
         self, items: list[dict],
     ) -> list[Belief | None]:
         """Assert multiple beliefs in a single locked pass.
 
         Sorts items topologically by justification dependencies (premises
-        before dependents), then asserts each via assert_belief. This
-        avoids acquiring the lock N times and ensures dependents see
-        their premises.
+        before dependents) using Kahn's algorithm, then asserts each via
+        assert_belief. Holds the lock once for the entire batch.
 
         Each item is a dict of kwargs for assert_belief (proposition,
         justifications, etc.). Items may reference each other via a
@@ -1242,35 +1256,53 @@ class BeliefStore:
         # We detect dependencies via '_ref' markers in justifications.
         # If no explicit refs, preserve input order (stable).
         order = list(range(n))
-        # Simple stable topological sort: ground first, then by
-        # justification depth.
-        def _depth(idx: int, seen: set[int]) -> int:
-            if idx in seen:
-                return 0  # cycle; treat as 0
-            seen.add(idx)
-            justs = items[idx].get("justifications") or []
-            # Flatten.
-            refs = set()
+        # True topological sort via Kahn's algorithm.
+        # Build adjacency: temp _id -> index, and dependencies.
+        id_to_idx: dict[str, int] = {}
+        for i, item in enumerate(items):
+            tid = item.get("_id")
+            if tid:
+                id_to_idx[tid] = i
+        # For each item, find which other batch items it depends on.
+        deps: list[set[int]] = [set() for _ in range(n)]
+        for i, item in enumerate(items):
+            justs = item.get("justifications") or []
             for j in justs:
+                jsets = [j] if isinstance(j, str) else j
+                # jsets is now a list of premise refs.
                 if isinstance(j, list):
-                    refs.update(j)
+                    refs = j
                 else:
-                    refs.add(j)
-            # Depth = 1 + max depth of dependencies that are in this batch.
-            # We can't resolve IDs yet, so use heuristic: non-ground with
-            # justifications sorts after ground beliefs.
-            item = items[idx]
-            if item.get("ground"):
-                return 0
-            if not refs:
-                return 1
-            return 2
-        order.sort(key=lambda i: (_depth(i, set()), i))
-        # Assert in sorted order, holding the lock once.
-        # (assert_belief is @_locked with RLock, so reentrant is safe,
-        # but we avoid N separate lock acquisitions by inlining the
-        # core logic... actually we call assert_belief which handles it.
-        # The win is topological ordering + single audit flush.)
+                    refs = [j]
+                for ref in refs:
+                    if ref in id_to_idx and id_to_idx[ref] != i:
+                        deps[i].add(id_to_idx[ref])
+        # Kahn's: in-degree = number of dependencies.
+        in_deg = [len(d) for d in deps]
+        # Reverse adjacency: who depends on me.
+        dependents: list[list[int]] = [[] for _ in range(n)]
+        for i, ds in enumerate(deps):
+            for d in ds:
+                dependents[d].append(i)
+        # Start with zero in-degree, in input order (stable).
+        from collections import deque
+        queue: deque[int] = deque(
+            i for i in range(n) if in_deg[i] == 0)
+        order: list[int] = []
+        while queue:
+            i = queue.popleft()
+            order.append(i)
+            for dep_idx in dependents[i]:
+                in_deg[dep_idx] -= 1
+                if in_deg[dep_idx] == 0:
+                    queue.append(dep_idx)
+        # Cycle fallback: append remaining in input order.
+        if len(order) < n:
+            remaining = [i for i in range(n) if i not in order]
+            order.extend(remaining)
+        # Assert in topological order. The @_locked decorator holds
+        # the lock once for the entire batch (RLock is reentrant, so
+        # the nested assert_belief calls are safe).
         results: list[Belief | None] = [None] * n
         # Resolve _id references: allow items to reference each other.
         id_map: dict[str, str] = {}  # temp _id -> real belief id
@@ -1652,13 +1684,54 @@ class BeliefStore:
                          "n_contradictors": len(contradictors)},
                     )
                     continue
-                # Outranks all: retract the contradictors (like assert_belief).
+                # DOOMED CHECK: if B's justifications depend on beliefs
+                # that would be doomed by retracting the contradictors,
+                # B is borrowing warrant — block re-derivation.
+                # (Mirrors _doomed_justifications in assert_belief.)
+                contra_ids = {c.id for c in contradictors}
+                doomed = self._doomed_justifications(b, contra_ids)
+                if doomed:
+                    self._audit.record(
+                        "rederived_blocked",
+                        b.id,
+                        b.proposition,
+                        f"re-derivation blocked: justifications doomed "
+                        f"if contradictors retracted",
+                        {"premise": belief_id,
+                         "doomed": list(doomed)},
+                    )
+                    continue
+                # Outranks all and not doomed: retract the contradictors
+                # (like assert_belief).
                 for c in contradictors:
                     self._retract_single(
                         c.id,
                         f"contradicted by re-derived '{b.proposition}'",
                         cascade=True,
                     )
+            # CONSTRAINT CHECK: N-ary constraints must allow B's return.
+            # Simulate adding B to the active set and run constraint checks.
+            if self._constraints:
+                sim_beliefs = [
+                    bb.snapshot() for bid, bb in self._beliefs.items()
+                    if bb.is_active or bid == b.id
+                ]
+                violated_ids: set[str] = set()
+                for _name, _check in self._constraints.items():
+                    try:
+                        vids = _check(sim_beliefs)
+                        violated_ids.update(vids)
+                    except Exception:
+                        continue  # fail-open, like _simulate_constraint_contraction
+                if b.id in violated_ids:
+                    self._audit.record(
+                        "rederived_blocked",
+                        b.id,
+                        b.proposition,
+                        "re-derivation blocked: N-ary constraint violation",
+                        {"premise": belief_id},
+                    )
+                    continue
             # Safe to re-derive.
             b.status = "active"
             self._index(b)
