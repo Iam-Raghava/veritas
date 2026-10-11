@@ -333,6 +333,72 @@ class BeliefStore:
             return [b.snapshot()
                     for b in self._contradictors_of_locked(belief)]
 
+    def _vector_candidates(self, belief: Belief) -> list[Belief] | None:
+        """Top-K semantically similar candidates via vector pre-filter.
+
+        Returns None if vector filtering is disabled or unavailable
+        (caller falls back to brute force). Enabled via
+        VERITAS_VECTOR_PREFILTER=1 and requires the ONNX embedder.
+        """
+        import os
+        if os.environ.get("VERITAS_VECTOR_PREFILTER", "0") != "1":
+            return None
+        # Lazy embedder (cached on the store).
+        if not hasattr(self, "_vector_embedder"):
+            try:
+                import sys
+                sys.path.insert(0, os.path.join(
+                    os.path.dirname(__file__), "..", "aml"))
+                from dense import DenseEmbedder
+                dense_dir = (
+                    os.environ.get("VERITAS_DENSE_DIR")
+                    or os.path.expanduser("~/workspace/models/bge-m3")
+                )
+                self._vector_embedder = DenseEmbedder(dense_dir)
+                self._vector_cache: dict[str, object] = {}
+                self._vector_cache_gen = -1
+            except Exception:
+                self._vector_embedder = None
+        if not getattr(self, "_vector_embedder", None):
+            return None
+        import numpy as np
+        embedder = self._vector_embedder
+        # Invalidate cache on generation change.
+        if self._vector_cache_gen != self._ent_gen:
+            self._vector_cache.clear()
+            self._vector_cache_gen = self._ent_gen
+        # Embed query.
+        try:
+            q_emb = embedder.embed([belief.proposition])[0]
+        except Exception:
+            return None
+        candidates = [b for b in self.active_beliefs()
+                      if b.id != belief.id]
+        if not candidates:
+            return []
+        # Embed uncached candidates.
+        to_embed = [b for b in candidates if b.id not in self._vector_cache]
+        if to_embed:
+            try:
+                embs = embedder.embed([b.proposition for b in to_embed])
+                for b, emb in zip(to_embed, embs):
+                    self._vector_cache[b.id] = emb
+            except Exception:
+                return None
+        # Top-K by cosine similarity.
+        top_k = int(os.environ.get("VERITAS_VECTOR_TOPK", "15"))
+        q_norm = np.linalg.norm(q_emb)
+        scored = []
+        for b in candidates:
+            emb = self._vector_cache.get(b.id)
+            if emb is None:
+                continue
+            sim = float(np.dot(q_emb, emb) /
+                        (q_norm * np.linalg.norm(emb) + 1e-9))
+            scored.append((sim, b))
+        scored.sort(key=lambda x: -x[0])
+        return [b for _, b in scored[:top_k]]
+
     def _contradictors_of_locked(self, belief: Belief) -> list[Belief]:
         """Active beliefs contradicting `belief`, via index + detector.
 
@@ -340,7 +406,14 @@ class BeliefStore:
         independent of hash randomization.
         """
         if not self._indexed:
-            # Custom detector: exact scan (index covers heuristic patterns only).
+            # Custom detector: use vector pre-filter if available,
+            # else exact scan (index covers heuristic patterns only).
+            candidates = self._vector_candidates(belief)
+            if candidates is not None:
+                return [
+                    b for b in candidates
+                    if b.id != belief.id and self.contradiction_fn(belief, b)
+                ]
             return [
                 b for b in self.active_beliefs()
                 if b.id != belief.id and self.contradiction_fn(belief, b)
