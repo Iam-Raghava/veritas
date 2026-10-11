@@ -118,14 +118,18 @@ def test_transitive_doomed_justification():
 
 def test_live_justification_still_counts():
     """P justified by R (unrelated, survives): R's corroboration is
-    legitimate and must still count toward P's entrenchment."""
+    legitimate and must still count toward P's entrenchment.
+
+    Under EE2, P is capped at min(premise entrenchments). R is strong
+    (0.70), so P (capped at 0.70) beats Q (0.63) fairly.
+    """
     s = BeliefStore()
     q = make_q(s)
     r = s.assert_belief(
         "Beta's CEO is Ann",
-        confidence=0.7,
+        confidence=0.85,
         source="press release",
-        source_reliability=0.7,
+        source_reliability=0.85,
     )
 
     p = s.assert_belief(
@@ -135,9 +139,10 @@ def test_live_justification_still_counts():
         source_reliability=0.7,
         justifications=[r.id],
     )
-    # 0.57 own + 0.083 corroboration = 0.653 > 0.63: wins fairly.
+    # P capped at R's entrenchment (~0.70) > Q's 0.63: wins fairly.
     assert p is not None, "P with live justification was wrongly rejected"
-    assert p.justifications == [r.id], p.justifications
+    # Justifications are Horn-clause AND-sets (list of lists).
+    assert any(r.id in jset for jset in p.justifications), p.justifications
     assert s.get(r.id).is_active
     assert not s.get(q.id).is_active
     assert s.is_consistent()
