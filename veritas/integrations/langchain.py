@@ -25,6 +25,7 @@ except ImportError:
     _LANGCHAIN_AVAILABLE = False
     BaseMemory = object  # type: ignore[assignment,misc]
 
+from ..extract import ClaimExtractor, HeuristicClaimExtractor
 from ..store import BeliefStore
 
 
@@ -37,13 +38,19 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
     instead of LangChain's default latest-wins behavior.
     """
 
-    def __init__(self, store: BeliefStore | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        store: BeliefStore | None = None,
+        extractor: ClaimExtractor | None = None,
+        **kwargs: Any,
+    ) -> None:
         if not _LANGCHAIN_AVAILABLE:
             raise ImportError(
                 "langchain-core is required: pip install langchain-core"
             )
         super().__init__(**kwargs)
         self.store = store or BeliefStore()
+        self.extractor = extractor or HeuristicClaimExtractor()
 
     @property
     def memory_variables(self) -> list[str]:
@@ -63,28 +70,35 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
         self, inputs: dict[str, Any], outputs: dict[str, Any]
     ) -> None:
         # Extract human input and AI output as beliefs.
-        # Store raw text as proposition (no "User said:" prefix) so the
-        # heuristic detector's regexes can match. Speaker role goes in
-        # metadata.
+        # Each is split into atomic claims via the extractor, so
+        # multi-sentence inputs become multiple evaluable beliefs.
         human = inputs.get("input", "")
         ai_out = outputs.get("output", "")
         if human:
-            self.store.assert_belief(
-                human,
-                source="user",
-                source_reliability=0.9,
-                ground=True,
-                metadata={"role": "user"},
-            )
+            for claim in self.extractor.extract_claims(human):
+                self.store.assert_belief(
+                    claim.text,
+                    source="user",
+                    source_reliability=0.9,
+                    ground=True,
+                    metadata={
+                        "role": "user",
+                        "claim_confidence": claim.confidence,
+                    },
+                )
         if ai_out:
             # AI outputs are derived, not ground — they can be retracted
             # if contradicted by stronger evidence.
-            self.store.assert_belief(
-                ai_out,
-                source="agent",
-                source_reliability=0.6,
-                metadata={"role": "agent"},
-            )
+            for claim in self.extractor.extract_claims(ai_out):
+                self.store.assert_belief(
+                    claim.text,
+                    source="agent",
+                    source_reliability=0.6,
+                    metadata={
+                        "role": "agent",
+                        "claim_confidence": claim.confidence,
+                    },
+                )
 
     def clear(self) -> None:
         # Retract all (audited, not wiped).
