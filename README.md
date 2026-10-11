@@ -163,7 +163,6 @@ Tested like infrastructure, not a demo:
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
-| `tests/test_mutation.py` | 7 targeted mutants (decision rules, cascade, pruning) | 7/7 killed |
 | `tests/test_adversarial.py` | 14 adversarial cases: corrupt DBs, future/legacy schemas, 10k fan-out cascade, hostile detectors, clock skew, concurrent CLI, unserializable metadata, snapshot isolation, deepcopy | 14/14 pass |
 | `tests/test_v03.py` | 12 formal rigor tests (EE2/EE3, zombie prevention, Hansson) | 12/12 pass |
 | `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
