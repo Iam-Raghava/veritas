@@ -20,7 +20,8 @@ from veritas.belief import Belief  # noqa: E402
 from veritas.store import DEFAULT_SURVIVAL_THRESHOLD  # noqa: E402
 
 # No recency: wall-clock time must not affect the comparison.
-W = {"source": 0.4, "corroboration": 0.2, "confidence": 0.4, "recency": 0.0}
+from veritas.entrenchment import DEFAULT_WEIGHTS
+W = dict(DEFAULT_WEIGHTS)
 
 
 class ReferenceStore:
@@ -126,20 +127,29 @@ class ReferenceStore:
         return doomed_premises
 
     def assert_belief(self, prop, rel, conf, justs, ground=False):
-        # Prune justifications to active beliefs (mirrors Veritas).
-        justs = [j for j in justs
-                 if j in self.beliefs and self.beliefs[j].is_active]
-        # Deduplicate (mirrors Veritas).
-        justs = list(dict.fromkeys(justs))
+        # Normalize to Horn clauses FIRST (mirrors Veritas _normalize_justifications).
+        # Flat list ['a','b'] -> [['a','b']] (single AND-set).
+        from veritas.belief import _normalize_justifications
+        normed = _normalize_justifications(justs)
+        # Prune: drop any AND-set with a dead premise (Horn AND semantics).
+        # Mirrors Veritas's fixed assert_belief logic.
+        valid_justs = []
+        for jset in normed:
+            if all(j in self.beliefs and self.beliefs[j].is_active for j in jset):
+                valid_justs.append(jset)
+        # Deduplicate within sets (mirrors Veritas).
         new = Belief(proposition=prop, source="x",
                      source_reliability=rel, confidence=conf,
-                     justifications=list(justs), ground=ground)
+                     justifications=valid_justs, ground=ground)
         new_ent_full = self._ent(new)
         # Find contradictors by brute force.
         conts = [b for b in self._active() if self._contradicts(new, b)]
         # Prune doomed justifications BEFORE the decision (mirrors Veritas's
         # borrowed-entrenchment guard). Use normalized Horn clauses.
         doomed = self._doomed({c.id for c in conts}, new.justifications)
+        # Track if we had justifications originally (for zombie-birth check).
+        # Use normed (before dead-premise pruning), not new.justifications.
+        had_justs = bool(normed)
         if doomed:
             # Drop any AND-set containing a doomed premise.
             new_justs = []
@@ -150,6 +160,10 @@ class ReferenceStore:
             new_ent = self._ent(new)
         else:
             new_ent = new_ent_full
+        # Zombie-birth prevention (mirrors Veritas): reject non-ground belief
+        # whose justifications were entirely doomed/pruned.
+        if not new.ground and not new.justifications and had_justs:
+            return None
         # Reject if any contradictor is unbeatable.
         if any(self._ent(c) >= new_ent for c in conts):
             return None
@@ -160,46 +174,61 @@ class ReferenceStore:
         return new
 
     def _has_ground_path(self, belief_id: str) -> bool:
-        """Well-foundedness check (mirrors Veritas)."""
-        seen = set()
-        stack = [belief_id]
-        while stack:
-            bid = stack.pop()
-            if bid in seen:
-                continue
-            seen.add(bid)
+        """Well-foundedness check (mirrors Veritas AND-OR semantics).
+
+        A belief is well-founded iff it is ground, or there EXISTS an
+        AND-set where EVERY premise is well-founded (recursive).
+        """
+        memo: dict[str, bool] = {}
+
+        def _wf(bid: str, path: frozenset[str]) -> bool:
+            if bid in memo:
+                return memo[bid]
+            if bid in path:
+                return False  # cycle
             b = self.beliefs.get(bid)
             if b is None or not b.is_active:
-                continue
+                memo[bid] = False
+                return False
             if b.ground:
+                memo[bid] = True
                 return True
-            stack.extend(b.all_premise_ids)
-        return False
+            if not b.justifications:
+                memo[bid] = False
+                return False
+            # OR across AND-sets: any fully-well-founded set suffices.
+            new_path = path | {bid}
+            for jset in b.justifications:
+                if all(_wf(pid, new_path) for pid in jset):
+                    memo[bid] = True
+                    return True
+            memo[bid] = False
+            return False
+
+        return _wf(belief_id, frozenset())
 
     def _retract(self, bid):
         b = self.beliefs.get(bid)
         if b is None or not b.is_active:
             return
         b.status = "retracted"
-        # Cascade, mirroring Veritas v0.4: Horn clauses + well-foundedness.
+        # Cascade, mirroring Veritas: NON-DESTRUCTIVE (justifications
+        # preserved). A dependent survives iff it still has a valid
+        # proof (well-founded via remaining active premises).
         stack = [bid]
         while stack:
             lost = stack.pop()
             for dep in self._active():
                 if lost not in dep.all_premise_ids:
                     continue
-                # Drop any AND-set containing the lost premise.
-                new_justs = []
-                for jset in dep.justifications:
-                    if lost not in jset:
-                        new_justs.append(jset)
-                dep.justifications = new_justs
-                # Survive iff: (has sets AND ground path) OR
-                # (orphaned AND ground).
+                # NON-DESTRUCTIVE: do NOT mutate dep.justifications.
+                # Check if dep still has a valid proof (the lost premise
+                # is now inactive, so _has_ground_path accounts for it).
                 if dep.justifications:
                     if self._has_ground_path(dep.id):
                         continue
-                    # Has sets but no ground path: retract.
+                    # Has justifications but no valid proof: retract.
+                    # (Justifications PRESERVED for re-derivation.)
                 else:
                     if dep.ground:
                         continue
