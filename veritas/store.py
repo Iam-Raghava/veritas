@@ -242,13 +242,19 @@ class BeliefStore:
         # not yet stored may have their justifications mutated (doomed
         # pruning) without bumping the generation, which would make
         # the cache return stale values.
+        # Cache tuple: (generation, computed_at_wallclock, value).
+        # Recency decays with wall-clock time, so we invalidate entries
+        # older than RECENCY_CACHE_TTL even if the generation hasn't changed.
+        import time
         cached = None
         if belief.id in self._beliefs:
             cached = self._ent_cache.get(belief.id)
         if cached is not None and cached[0] == self._ent_gen:
-            if self.metrics is not None:
-                self.metrics.cache_hits += 1
-            return cached[1]
+            age = time.time() - cached[1]
+            if age < 3600:  # RECENCY_CACHE_TTL: 1 hour
+                if self.metrics is not None:
+                    self.metrics.cache_hits += 1
+                return cached[2]
         if self.metrics is not None:
             self.metrics.cache_misses += 1
 
@@ -315,8 +321,10 @@ class BeliefStore:
             belief, self.entrenchment_weights,
             n_justifications=len(belief.justifications)))
         # Cache for this generation (only if in store — see above).
+        # Tuple: (generation, wallclock_computed_at, value).
         if belief.id in self._beliefs:
-            self._ent_cache[belief.id] = (self._ent_gen, result)
+            import time
+            self._ent_cache[belief.id] = (self._ent_gen, time.time(), result)
         return result
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
@@ -486,9 +494,27 @@ class BeliefStore:
                 self._subscribers.pop(belief_id, None)
 
     def _fire_subscribers(self, belief_id: str, event_type: str) -> None:
-        for cb in list(self._subscribers.get(belief_id, [])):
+        # Pop (not get): retracted beliefs cannot be reactivated via the
+        # normal API, so their callbacks would leak indefinitely.
+        # (Re-derivation uses _try_rederive_dependents which re-subscribes
+        # if needed.)
+        import asyncio
+        import inspect
+        for cb in self._subscribers.pop(belief_id, []):
             try:
-                cb(belief_id, event_type)
+                if inspect.iscoroutinefunction(cb):
+                    # Async callback: schedule it if we're in an event loop,
+                    # otherwise run it to completion in a new loop.
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop is not None:
+                        loop.create_task(cb(belief_id, event_type))
+                    else:
+                        asyncio.run(cb(belief_id, event_type))
+                else:
+                    cb(belief_id, event_type)
             except Exception:
                 pass  # a broken subscriber must not break retraction
 
@@ -567,47 +593,115 @@ class BeliefStore:
                                     if vid in active_ids]
             return result
 
+    def _simulate_constraint_contraction(
+        self, newcomer_id: str | None
+    ) -> set[str] | None:
+        """Simulate constraint resolution WITHOUT mutating state.
+
+        Returns the set of belief IDs that would be retracted to satisfy
+        all constraints, or an empty set if no violations. Returns None
+        only if violations exist but cannot be resolved (should not happen
+        in practice; the real loop breaks in that case too).
+
+        This enables transactional semantics: if the newcomer is in the
+        retraction set, the caller rejects it WITHOUT touching incumbents.
+        """
+        active = {bid for bid, b in self._beliefs.items() if b.is_active}
+        # Entrenchment on current (unmutated) state; cache is valid.
+        ent = {bid: self.entrenchment_of(self._beliefs[bid]) for bid in active}
+
+        def _check_on(sim_active: set[str]) -> dict[str, list[str]]:
+            snapshots = [self._beliefs[bid].snapshot()
+                         for bid in sim_active]
+            result: dict[str, list[str]] = {}
+            for name, check in self._constraints.items():
+                try:
+                    violated = check(snapshots)
+                except Exception:
+                    continue  # broken constraint: skip, don't block
+                if violated:
+                    result[name] = [v for v in violated if v in sim_active]
+            return result
+
+        to_retract: set[str] = set()
+        sim_active = set(active)
+        for _ in range(len(sim_active) + 1):
+            violations = _check_on(sim_active)
+            viol_ids: set[str] = set()
+            for vids in violations.values():
+                viol_ids.update(vids)
+            if not viol_ids:
+                break
+            weakest = min(viol_ids, key=lambda bid: (ent[bid], bid))
+            to_retract.add(weakest)
+            sim_active.discard(weakest)
+            # Simulate JTMS cascade: iteratively drop dependents whose
+            # every AND-set lost at least one premise (and who aren't
+            # ground observations).
+            changed = True
+            while changed:
+                changed = False
+                for bid in list(sim_active):
+                    b = self._beliefs[bid]
+                    if b.ground or not b.justifications:
+                        continue
+                    has_valid = any(
+                        all(pid in sim_active for pid in jset)
+                        for jset in b.justifications
+                    )
+                    if not has_valid:
+                        to_retract.add(bid)
+                        sim_active.discard(bid)
+                        changed = True
+        return to_retract
+
     def _enforce_constraints_locked(
         self, newcomer_id: str | None
-    ) -> list[Belief]:
+    ) -> list[Belief] | None:
         """Contract weakest violators until all constraints satisfied.
 
-        Returns snapshots of retracted beliefs. If the newcomer itself
-        must go to satisfy a constraint, it is retracted (caller treats
-        the assertion as rejected).
-        """
-        from .entrenchment import order_by_entrenchment
+        TRANSACTIONAL: first simulates the full retraction set without
+        mutating. If the newcomer must be retracted to satisfy constraints,
+        returns None and the caller rejects the newcomer WITHOUT touching
+        any incumbent — a rejected input leaves the belief base invariant
+        (Hansson non-prioritized revision postulate).
 
+        Returns snapshots of retracted beliefs on success.
+        """
         # Fast path: no constraints registered.
         if not self._constraints:
             return []
 
+        # Phase 1: simulate. No mutations.
+        to_retract = self._simulate_constraint_contraction(newcomer_id)
+        if not to_retract:
+            return []
+        if newcomer_id is not None and newcomer_id in to_retract:
+            self._audit.record(
+                REJECTED,
+                newcomer_id,
+                self._beliefs[newcomer_id].proposition
+                if newcomer_id in self._beliefs else "",
+                "rejected: constraint satisfaction requires retracting "
+                "the newcomer itself; incumbents untouched",
+                {"constraint_retracted": []},
+            )
+            return None
+
+        # Phase 2: perform retractions for real (newcomer survives).
+        # Retract in deterministic weakest-first order for audit clarity.
+        ordered = sorted(
+            to_retract,
+            key=lambda bid: (self.entrenchment_of(self._beliefs[bid]), bid),
+        )
         retracted: list[Belief] = []
-        # Bound iterations: each pass retracts at least one belief.
-        for _ in range(len(self._beliefs) + 1):
-            violations = self.check_constraints()
-            if not violations:
-                break
-            self._bump_metric("constraint_violations", len(violations))
-            # Collect all violating IDs across constraints.
-            viol_ids: set[str] = set()
-            for vids in violations.values():
-                viol_ids.update(vids)
-            viol_beliefs = [
-                self._beliefs[vid] for vid in viol_ids
-                if vid in self._beliefs and self._beliefs[vid].is_active
-            ]
-            if not viol_beliefs:
-                break
-            ordered = order_by_entrenchment(
-                viol_beliefs, self.entrenchment_weights, ascending=True)
-            weakest = ordered[0]
-            # _retract_single audits and cascades; returns snapshots.
-            retracted.extend(self._retract_single(
-                weakest.id,
-                f"constraint violation {list(violations.keys())}",
-                cascade=True,
-            ))
+        for bid in ordered:
+            if bid in self._beliefs and self._beliefs[bid].is_active:
+                retracted.extend(self._retract_single(
+                    bid,
+                    "constraint violation",
+                    cascade=True,
+                ))
         return retracted
 
     # ------------------------------------------------------------------
@@ -656,16 +750,18 @@ class BeliefStore:
         valid_justs: list[list[str]] = []
         pruned_justs: list[str] = []
         for jset in normed:
-            valid_set = []
-            for j in jset:
-                target = self._beliefs.get(j)
-                if target is not None and target.is_active:
-                    valid_set.append(j)
-                else:
-                    pruned_justs.append(j)
-            # Drop empty sets (all premises dead); keep non-empty.
-            if valid_set:
-                valid_justs.append(valid_set)
+            # Horn-clause AND semantics: if ANY premise in a set is dead,
+            # the ENTIRE set is invalid (all premises are required for the
+            # derivation). We drop the whole set, not just the dead premise
+            # — pruning individual premises would corrupt P1∧P2⇒C into
+            # P1⇒C, an unearned derivation.
+            if all(
+                (tgt := self._beliefs.get(j)) is not None and tgt.is_active
+                for j in jset
+            ):
+                valid_justs.append(jset)
+            else:
+                pruned_justs.extend(jset)
 
         new = Belief(
             proposition=proposition,
@@ -701,7 +797,25 @@ class BeliefStore:
         if not contradictors:
             self._store(new)
             # Enforce n-ary constraints (joint inconsistency).
+            # Transactional: returns None if the newcomer must be rejected;
+            # incumbents are untouched in that case.
             c_retracted = self._enforce_constraints_locked(new.id)
+            if c_retracted is None:
+                # Newcomer rejected by constraint simulation. Remove it
+                # (it was staged) and leave the belief base invariant.
+                self._beliefs.pop(new.id, None)
+                self._unindex(new)
+                self._ent_gen += 1
+                self._audit.record(
+                    REJECTED,
+                    new.id,
+                    new.proposition,
+                    "rejected: constraint violation could only be resolved "
+                    "by retracting the newcomer; incumbents untouched",
+                    {"entrenchment": new_ent},
+                )
+                self._bump_metric("rejections")
+                return None
             if not self._beliefs.get(new.id, new).is_active:
                 # Newcomer was retracted to satisfy a constraint.
                 self._audit.record(
@@ -721,7 +835,10 @@ class BeliefStore:
                 f"no contradictions; entrenchment={new_ent:.3f}",
                 {"entrenchment": new_ent,
                  "pruned_justifications": pruned_justs,
-                 "constraint_retracted": [b.id for b in c_retracted]},
+                 "constraint_retracted": [b.id for b in c_retracted],
+                 # Snapshot for TimeTravel reconstruction (immutable).
+                 "belief_snapshot": new.to_dict()},
+                timestamp=new.timestamp,
             )
             self._bump_metric("assertions")
             return new.snapshot()
@@ -754,11 +871,33 @@ class BeliefStore:
             pruned_justs.extend(doomed_justs)
             new_ent = self.entrenchment_of(new)
 
+        # Zombie-birth prevention (BEFORE any mutations): a non-ground
+        # belief whose justifications were entirely doomed is an ungrounded
+        # orphan. Reject now, before retracting contradictors, to keep the
+        # operation transactional.
+        if not new.ground and not new.justifications and normed:
+            self._audit.record(
+                REJECTED,
+                new.id,
+                new.proposition,
+                "rejected: all justifications doomed and belief is not "
+                "grounded; no incumbents touched",
+                {"entrenchment": new_ent,
+                 "pruned_justifications": pruned_justs},
+            )
+            self._bump_metric("rejections")
+            self._bump_metric("contradictions_found", len(contradictors))
+            return None
+
         # All-or-nothing: the newcomer must outrank EVERY contradictor.
         # (Hansson: a screened revision rejects input that cannot beat
         # the incumbent entrenchment.)
-        weakest_first = order_by_entrenchment(
-            contradictors, self.entrenchment_weights, ascending=True
+        # Sort by CAPPED entrenchment (EE2 post-order cap via
+        # self.entrenchment_of), not raw scores — a derived belief with
+        # high raw confidence but a weak premise must sort as weak.
+        weakest_first = sorted(
+            contradictors,
+            key=lambda b: (self.entrenchment_of(b), b.id),
         )
         unbeatable = [
             b for b in weakest_first if self.entrenchment_of(b) >= new_ent
@@ -807,9 +946,33 @@ class BeliefStore:
                 surviving_justs.append(jset)
         new.justifications = surviving_justs
 
+        # Note: zombie-birth was already checked BEFORE retractions (above).
+        # If we reach here, the newcomer has valid justifications or is
+        # ground. The post-contraction pruning above cannot create a zombie
+        # from a non-zombie (it only removes sets, and we checked the
+        # doomed case earlier).
+
         self._store(new)
         # Enforce n-ary constraints (joint inconsistency).
+        # Transactional: returns None if the newcomer must be rejected;
+        # incumbents are untouched in that case.
         c_retracted = self._enforce_constraints_locked(new.id)
+        if c_retracted is None:
+            # Newcomer rejected by constraint simulation. Remove it
+            # (it was staged) and leave the belief base invariant.
+            self._beliefs.pop(new.id, None)
+            self._unindex(new)
+            self._ent_gen += 1
+            self._audit.record(
+                REJECTED,
+                new.id,
+                new.proposition,
+                "rejected: constraint violation could only be resolved "
+                "by retracting the newcomer; incumbents untouched",
+                {"entrenchment": new_ent},
+            )
+            self._bump_metric("rejections")
+            return None
         if not self._beliefs.get(new.id, new).is_active:
             self._audit.record(
                 REJECTED,
@@ -830,7 +993,10 @@ class BeliefStore:
             {"entrenchment": new_ent,
              "retracted_ids": [b.id for b in retracted],
              "pruned_justifications": pruned_justs,
-             "constraint_retracted": [b.id for b in c_retracted]},
+             "constraint_retracted": [b.id for b in c_retracted],
+             # Snapshot for TimeTravel reconstruction (immutable).
+             "belief_snapshot": new.to_dict()},
+            timestamp=new.timestamp,
         )
         self._bump_metric("assertions")
         return new.snapshot()
@@ -853,28 +1019,145 @@ class BeliefStore:
         return self._retract_single(belief_id, reason, cascade=True)
 
     def _has_ground_path_locked(self, belief_id: str) -> bool:
-        """Check if belief has a directed path to a ground observation.
+        """Check if belief has a valid Horn-clause proof from ground observations.
 
-        Well-foundedness (Doyle 1979): a belief is valid iff it is
-        ground itself or can reach a ground belief via active
-        justifications (across all Horn-clause sets). Cycle-safe via
-        visited set. Used by the cascade to detect circular
-        self-justifying loops.
+        Well-foundedness (Doyle 1979) for AND-OR hypergraphs: a belief is
+        valid iff it is ground itself, or there EXISTS an AND-set in its
+        justifications such that EVERY premise in that set is well-founded
+        (recursive). This is AND-OR semantics, not OR-reachability:
+        P1∧P2⇒C requires BOTH P1 and P2 to be grounded, not just one.
+
+        Cycle-safe via visited set. Iterative to avoid recursion limits.
         """
-        seen: set[str] = set()
-        stack = [belief_id]
-        while stack:
-            bid = stack.pop()
-            if bid in seen:
-                continue
-            seen.add(bid)
-            b = self._beliefs.get(bid)
-            if b is None or not b.is_active:
-                continue
-            if b.ground:
-                return True
-            stack.extend(b.all_premise_ids)
-        return False
+        # Memo: belief_id -> bool (well-founded or not)
+        memo: dict[str, bool] = {}
+        # Stack of (belief_id, state) where state=0 means "enter",
+        # state=1 means "exit, compute from children".
+        # We need post-order evaluation for AND-OR semantics.
+        visited: set[str] = set()
+
+        # Initialize: seed the root frame with its first AND-set.
+        # Note: we do NOT require the root belief to be active — this
+        # allows evaluating whether a RETRACTED belief would be
+        # well-founded if re-activated (for TMS re-derivation).
+        # Premises must still be active (checked during traversal).
+        b0 = self._beliefs.get(belief_id)
+        if b0 is None:
+            return False
+        if b0.ground:
+            return True
+        if not b0.justifications:
+            return False
+
+        def _is_well_founded(bid: str) -> bool:
+            # Iterative post-order traversal with explicit stack.
+            # Each frame: (belief_id, jset_idx, pending_premises, and_ok).
+            if bid in memo:
+                return memo[bid]
+            # Seed root with first AND-set's premises.
+            root_b = self._beliefs.get(bid)
+            assert root_b is not None and root_b.justifications
+            stack: list[tuple[str, int, list[str], bool]] = [
+                (bid, 0, list(root_b.justifications[0]), True)
+            ]
+            # Track the path for cycle detection.
+            path: set[str] = {bid}
+
+            while stack:
+                cur_id, jset_idx, pending, and_ok = stack[-1]
+                b = self._beliefs.get(cur_id)
+
+                # Base cases.
+                # Note: the ROOT belief (bid) is exempt from the active
+                # check — we're evaluating whether it WOULD be well-founded
+                # if active (for re-derivation). Premises must be active.
+                is_root = (cur_id == bid)
+                if b is None or (not b.is_active and not is_root):
+                    memo[cur_id] = False
+                    stack.pop()
+                    path.discard(cur_id)
+                    # Propagate to parent.
+                    if stack:
+                        p_id, p_jset, p_pend, p_and = stack[-1]
+                        # Current premise failed → this AND-set fails.
+                        stack[-1] = (p_id, p_jset, p_pend, False)
+                    continue
+                if b.ground:
+                    memo[cur_id] = True
+                    stack.pop()
+                    path.discard(cur_id)
+                    continue
+                if not b.justifications:
+                    memo[cur_id] = False
+                    stack.pop()
+                    path.discard(cur_id)
+                    if stack:
+                        p_id, p_jset, p_pend, p_and = stack[-1]
+                        stack[-1] = (p_id, p_jset, p_pend, False)
+                    continue
+
+                # If we have pending premises to check, process the next one.
+                if pending:
+                    nxt = pending[0]
+                    rest = pending[1:]
+                    stack[-1] = (cur_id, jset_idx, rest, and_ok)
+                    if nxt in memo:
+                        if not memo[nxt]:
+                            stack[-1] = (cur_id, jset_idx, rest, False)
+                    elif nxt in path:
+                        # Cycle: treat as failure for this path.
+                        stack[-1] = (cur_id, jset_idx, rest, False)
+                    else:
+                        path.add(nxt)
+                        nxt_b = self._beliefs.get(nxt)
+                        if (nxt_b is None or not nxt_b.is_active
+                                or not nxt_b.justifications):
+                            # Base case: handled on next iteration, but
+                            # seed empty so the base-case branch triggers.
+                            # Actually push with a marker: empty pending
+                            # + jset_idx=-1 means "evaluate base case".
+                            stack.append((nxt, -1, [], True))
+                        elif nxt_b.ground:
+                            stack.append((nxt, -1, [], True))
+                        else:
+                            stack.append(
+                                (nxt, 0, list(nxt_b.justifications[0]), True))
+                    continue
+
+                # No pending premises: evaluate current AND-set.
+                # and_ok is True iff all premises so far were well-founded.
+                if and_ok:
+                    # Found a fully-grounded AND-set → well-founded!
+                    memo[cur_id] = True
+                    stack.pop()
+                    path.discard(cur_id)
+                    continue
+                # Current AND-set failed; try next AND-set (OR across sets).
+                if jset_idx + 1 < len(b.justifications):
+                    nxt_set = b.justifications[jset_idx + 1]
+                    stack[-1] = (cur_id, jset_idx + 1, list(nxt_set), True)
+                    continue
+                # All AND-sets failed → not well-founded.
+                memo[cur_id] = False
+                stack.pop()
+                path.discard(cur_id)
+                if stack:
+                    p_id, p_jset, p_pend, p_and = stack[-1]
+                    stack[-1] = (p_id, p_jset, p_pend, False)
+
+            return memo.get(bid, False)
+
+        # Initialize: the root belief does NOT need to be active — we're
+        # evaluating whether it WOULD be well-founded if active (for
+        # TMS re-derivation). Premises must be active (checked in traversal).
+        b0 = self._beliefs.get(belief_id)
+        if b0 is None:
+            return False
+        if b0.ground:
+            return True
+        if not b0.justifications:
+            return False
+        return _is_well_founded(belief_id)
 
     def _retract_single(
         self, belief_id: str, reason: str, cascade: bool
@@ -906,35 +1189,35 @@ class BeliefStore:
                 dependent, lost_id = stack.pop()
                 if not dependent.is_active:
                     continue
-                # Remove lost_id from all AND-sets. For AND semantics,
-                # if ANY premise in a set is lost, the ENTIRE set dies
-                # (all premises are required). Drop dead sets.
-                new_justs = []
-                for jset in dependent.justifications:
-                    if lost_id not in jset:
-                        new_justs.append(jset)
-                dependent.justifications = new_justs
-
+                # NON-DESTRUCTIVE cascade (Doyle TMS semantics):
+                # We do NOT mutate dependent.justifications. The justification
+                # structure is permanent; only status toggles IN/OUT.
+                # The well-foundedness check naturally accounts for the lost
+                # premise because it is now inactive — any AND-set containing
+                # it will fail the check, but the structure is preserved for
+                # potential future re-derivation if the premise is re-asserted.
                 if dependent.justifications:
                     # Well-foundedness check (Doyle 1979): a belief with
-                    # justifications survives ONLY if it has a directed
-                    # path to a ground observation. This prevents circular
-                    # self-justifying loops (A<->B with no ground) from
-                    # sustaining each other indefinitely.
+                    # justifications survives ONLY if it has a valid
+                    # Horn-clause proof from ground observations, where
+                    # every premise in at least one AND-set is active and
+                    # well-founded. This prevents circular self-justifying
+                    # loops (A<->B with no ground) from sustaining each other.
                     if self._has_ground_path_locked(dependent.id):
                         self._audit.record(
                             CASCADE_RETRACTED,
                             dependent.id,
                             dependent.proposition,
                             f"lost justification '{lost_id}' but retains "
-                            f"{len(dependent.justifications)} set(s) with "
-                            f"ground path; survives",
+                            f"valid proof via remaining justifications; "
+                            f"survives (structure preserved)",
                             {"survived": True,
                              "lost_justification": lost_id},
                         )
                         continue
-                    # Has justifications but no ground path: circular or
+                    # Has justifications but no valid proof: circular or
                     # ungrounded. Must retract (fall through to retraction).
+                    # Justifications are PRESERVED for potential re-derivation.
 
                 # Orphaned: zombie-belief prevention. A derived belief
                 # cannot outlive its premises. It survives ONLY if
@@ -1022,6 +1305,48 @@ class BeliefStore:
             self._index(belief)
         # Graph mutated: bump entrenchment cache generation.
         self._ent_gen += 1
+        # TMS re-derivation: if this belief was retracted and is now
+        # re-asserted (or a new belief with the same ID pattern), check
+        # retracted dependents — their preserved justifications may now
+        # be satisfiable again.
+        if belief.is_active:
+            self._try_rederive_dependents(belief.id)
+
+    def _try_rederive_dependents(self, belief_id: str) -> None:
+        """Re-evaluate retracted dependents after a premise is (re-)asserted.
+
+        Classical TMS behavior: when a premise comes back IN, dependents
+        whose justifications are now satisfiable return to IN automatically.
+        This is only possible because cascades are non-destructive.
+        """
+        # Find retracted beliefs that depend on this premise.
+        for b in self._beliefs.values():
+            if b.is_active:
+                continue
+            if not b.justifications:
+                continue
+            # Does this belief depend on the (re-)asserted premise?
+            depends = any(
+                belief_id in jset for jset in b.justifications
+            )
+            if not depends:
+                continue
+            # Is it now well-founded? (All premises in some AND-set active.)
+            if self._has_ground_path_locked(b.id):
+                b.status = "active"
+                self._index(b)
+                self._ent_gen += 1
+                self._audit.record(
+                    "rederived",
+                    b.id,
+                    b.proposition,
+                    f"re-derived: premise '{belief_id}' re-asserted, "
+                    f"justification now satisfiable",
+                    {"premise": belief_id,
+                     "belief_snapshot": b.to_dict()},
+                )
+                # Recursively re-derive ITS dependents.
+                self._try_rederive_dependents(b.id)
 
     @_locked
     def stats(self) -> dict:
