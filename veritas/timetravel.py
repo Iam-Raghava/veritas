@@ -29,11 +29,19 @@ class TimeTravel:
         carries a belief_snapshot in details; we replay assertions and
         retractions in order.
 
+        Events are sorted by timestamp before replay (not assumed sorted):
+        historical backfills may interleave old assertion timestamps with
+        new retraction timestamps.
+
         Returns snapshots: mutating them cannot affect the store.
         """
         from veritas.belief import Belief
+        # Sort by (timestamp, seq) — seq breaks ties for same-timestamp
+        # events (e.g., assert then retract in the same millisecond).
+        events = sorted(self.store.audit,
+                        key=lambda e: (e.timestamp, e.seq))
         active: dict[str, Belief] = {}
-        for event in self.store.audit:
+        for event in events:
             if event.timestamp > timestamp:
                 break
             if event.event_type == "asserted":
