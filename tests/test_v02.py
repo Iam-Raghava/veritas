@@ -98,7 +98,10 @@ try:
           {b.proposition for b in s2.active_beliefs()} ==
           {b.proposition for b in s.active_beliefs()})
     check("retraction status survives", not s2.get(k1.id).is_active)
-    check("justifications survive", s2.get(k2.id).justifications == [])
+    # Non-destructive cascade: justifications are PRESERVED (not stripped)
+    # so re-derivation is possible. The old test expected [] (destructive).
+    check("justifications survive (preserved, not stripped)",
+          s2.get(k2.id).justifications == [[k1.id]])
     check("audit log survives", len(s2.audit) == len(s.audit))
     check("audit seq preserved", [e.seq for e in s2.audit] == list(range(len(s2.audit))))
     check("config survives",
