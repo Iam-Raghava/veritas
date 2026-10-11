@@ -51,7 +51,10 @@ def to_dot(store: BeliefStore) -> str:
     for b in store.all_beliefs():
         color = "green" if b.is_active else "red"
         shape = "box" if b.ground else "ellipse"
-        label = b.proposition[:40].replace('"', "'")
+        # Escape for DOT: backslashes, quotes, and newlines.
+        label = (b.proposition[:40].replace("\\", "\\\\")
+                 .replace('"', "'").replace("\n", "\\n")
+                 .replace("\r", ""))
         lines.append(
             f'  "{b.id}" [label="{label}", color={color}, shape={shape}];'
         )
@@ -73,7 +76,8 @@ def to_graphml(store: BeliefStore) -> str:
         '  <graph id="beliefs" edgedefault="directed">',
     ]
     for b in store.all_beliefs():
-        prop = b.proposition.replace("&", "&amp;").replace("<", "&lt;")
+        from xml.sax.saxutils import escape
+        prop = escape(b.proposition, entities={'"': "&quot;", "'": "&apos;"})
         lines.append(f'    <node id="{b.id}">')
         lines.append(f'      <data key="proposition">{prop}</data>')
         lines.append(f'      <data key="status">{b.status}</data>')
