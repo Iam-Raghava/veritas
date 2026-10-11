@@ -12,7 +12,7 @@ Usage:
 
 from __future__ import annotations
 
-from ..extract import ClaimExtractor, HeuristicClaimExtractor
+from ..extractor import ClaimExtractor, HeuristicClaimExtractor
 from ..store import BeliefStore
 
 
@@ -51,7 +51,7 @@ class VeritasChatMemory:
             # so the heuristic detector's regexes can match it. Speaker
             # identity goes in metadata, not the proposition text.
             self.store.assert_belief(
-                claim.text,
+                claim.proposition,
                 source=agent,
                 source_reliability=reliability,
                 ground=is_ground,
