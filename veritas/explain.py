@@ -42,20 +42,21 @@ class Explainer:
         lines = [f"Belief '{prop}' was retracted."]
         lines.append(f"Reason: {ret.reason}")
         # Find what contradicted it (assertion events around the same time)
-        # Look for contraction events mentioning this belief
+        # Look for contraction events mentioning this belief.
+        # Use list membership, NOT substring matching (b1 vs b10 bug).
         for e in self.store.audit:
-            if e.event_type == "asserted" and belief_id in str(
-                e.details.get("retracted_ids", [])
-            ):
+            retracted_ids = e.details.get("retracted_ids", [])
+            if e.event_type == "asserted" and belief_id in retracted_ids:
                 lines.append(
                     f"Contradicted by: '{e.proposition}' "
                     f"(entrenchment {e.details.get('entrenchment', '?')})"
                 )
-        # Check cascade
+        # Check cascade: only count beliefs retracted BECAUSE this belief
+        # was lost (via lost_justification), not all cascades in history.
         cascaded = [
             e for e in self.store.audit
             if e.event_type == "cascade_retracted"
-            and e.belief_id != belief_id
+            and e.details.get("lost_justification") == belief_id
         ]
         if cascaded:
             lines.append(
