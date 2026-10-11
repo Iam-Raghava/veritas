@@ -32,15 +32,22 @@ class Metrics:
     constraint_violations: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
-    # Operation latencies (seconds): name -> list of samples.
-    latencies: dict[str, list[float]] = field(default_factory=dict)
+    # Operation latencies (seconds): name -> bounded deque of samples.
+    # Bounded to prevent unbounded memory growth on long-running agents.
+    latencies: dict[str, "collections.deque[float]"] = field(
+        default_factory=dict)
     # Event counters by type.
     events: Counter = field(default_factory=Counter)
 
     def record(self, event: str, latency: float | None = None) -> None:
         self.events[event] += 1
         if latency is not None:
-            self.latencies.setdefault(event, []).append(latency)
+            import collections
+            dq = self.latencies.get(event)
+            if dq is None:
+                dq = collections.deque(maxlen=1000)
+                self.latencies[event] = dq
+            dq.append(latency)
 
     def summary(self) -> dict:
         out = {
