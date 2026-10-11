@@ -50,7 +50,10 @@ class LLMJudgeDetector:
             Use this for custom LLM integrations.
         api_key: API key for OpenAI-compatible endpoint.
         model: Model ID (e.g. "claude-sonnet-5-5", "gpt-6-sol").
-        api_base: Base URL (default: OpenAI).
+        api_base: Base URL (default: OpenAI). MUST be OpenAI-compatible
+            (/chat/completions, Bearer auth, choices[0].message.content).
+            The native Anthropic API (api.anthropic.com) is NOT compatible
+            — use an OpenAI proxy for Claude models.
     """
 
     name = "llm_judge"
@@ -94,8 +97,15 @@ class LLMJudgeDetector:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     result = json.loads(resp.read())
                     text = result["choices"][0]["message"]["content"]
-                    # Parse JSON from response
-                    parsed = json.loads(text.strip())
+                    # Strip markdown code fences: LLMs often wrap JSON in
+                    # ```json ... ```. Without this, json.loads crashes and
+                    # the detector silently returns False for everything.
+                    import re
+                    clean = re.sub(
+                        r"^```(?:json)?\s*|\s*```$",
+                        "", text.strip(), flags=re.MULTILINE,
+                    ).strip()
+                    parsed = json.loads(clean)
                     return bool(parsed.get("contradicts", False))
             except Exception:
                 return False
