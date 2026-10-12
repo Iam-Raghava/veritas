@@ -158,9 +158,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
 | `tests/test_readme.py` | Every README code block runs | 3/3 pass |
 | `tests/test_readme_sync.py` | README version/exports/test-files/changelog match code | 58/58 pass |
-| `tests/test_release_gate.py` | Pre-release: load, soak, chaos, API contract | 13/13 pass |
-| `tests/test_hybrid_retrieval.py` | CJK tokenizer, hybrid dense+TF-IDF, RRF | 12/12 pass |
-| `tests/test_dense_dashscope.py` | DashScope text-embedding-v4 backend, mocked HTTP, no key needed | 6/6 pass |
+| `tests/test_realistic_trajectory.py` | 30-day support agent: subscription, outage, stale cache, GDPR | pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
 | `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
