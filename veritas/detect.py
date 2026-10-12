@@ -59,7 +59,8 @@ _SPOSSESSIVE = re.compile(
     r"^\s*(?P<subj>.+?)'s\s+(?P<rel>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE
 )
 _SPLAIN = re.compile(
-    r"^\s*(?P<subj>.+?)\s+(?P<rel>CEO|ceo|headquarters|founder|capital|population|subscription|status|plan|tier|owner|manager|lead)\s+is\s+(?P<obj>.+?)\s*$"
+    r"^\s*(?P<subj>.+?)\s+(?P<rel>CEO|ceo|headquarters|founder|capital|population|subscription|status|plan|tier|owner|manager|lead)\s+is\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
 )
 _SIS = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
 _SIS_NOT = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+not\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
