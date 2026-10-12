@@ -21,6 +21,17 @@ urls = { Homepage = "https://github.com/Iam-Raghava/veritas" }
 
 [project.optional-dependencies]
 nli = ["transformers>=4.40", "torch>=2.0"]
+semantic = ["sentence-transformers>=2.2.0"]
+postgres = ["psycopg[binary]>=3.1"]
+vector = ["numpy>=1.24", "onnxruntime>=1.16"]
+all = [
+    "transformers>=4.40",
+    "torch>=2.0",
+    "sentence-transformers>=2.2.0",
+    "psycopg[binary]>=3.1",
+    "numpy>=1.24",
+    "onnxruntime>=1.16",
+]
 
 [project.scripts]
 veritas = "veritas.cli:main"
