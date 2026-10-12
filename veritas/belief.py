@@ -161,6 +161,7 @@ class Belief:
         callers can never corrupt the contradiction index by mutating
         a returned belief.
         """
+        import copy
         return Belief(
             proposition=self.proposition,
             confidence=self.confidence,
@@ -170,7 +171,7 @@ class Belief:
             id=self.id,
             timestamp=self.timestamp,
             status=self.status,
-            metadata=dict(self.metadata),
+            metadata=copy.deepcopy(self.metadata),
             ground=self.ground,
             valid_from=self.valid_from,
             valid_until=self.valid_until,
