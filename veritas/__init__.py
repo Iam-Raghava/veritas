@@ -19,6 +19,7 @@ from .detect import (
 from .detect_nli import HuggingFaceNLIDetector
 from .detect_semantic import SemanticDetector
 from .detect_llm import LLMJudgeDetector
+from .detect_hybrid import HybridDetector
 from .timetravel import TimeTravel
 from .export import to_json, to_dot, to_graphml
 from .entrenchment import (
@@ -67,6 +68,7 @@ __all__ = [
     "Detector",
     "HeuristicDetector",
     "HuggingFaceNLIDetector",
+    "HybridDetector",
     "SemanticDetector",
     "LLMJudgeDetector",
     "TimeTravel",
