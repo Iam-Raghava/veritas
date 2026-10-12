@@ -1,6 +1,6 @@
 # Governance Benchmark: Veritas vs Naive Baselines
 
-_Seed 20261012. Deterministic — rerun reproduces these numbers. Total runtime 0.7s. No network, no API calls._
+_Seed 20261012. Deterministic — rerun reproduces these numbers. Total runtime 0.6s. No network, no API calls._
 
 ## Results
 
@@ -8,7 +8,7 @@ _Seed 20261012. Deterministic — rerun reproduces these numbers. Total runtime 
 |---|---|---|---|---|
 | Contradiction storm: 50 facts x 4 writes, truth = 0.9-src value | 100.0% | 24.0% | 34.0% | % facts correct (higher better) |
 | Cascade integrity: 20 chains x depth 50, retract roots | 0.0% | 100.0% | 100.0% | % orphans remaining (lower better) |
-| Temporal accuracy: 30 facts x 2 windows, 10 time queries | 100.0% | n/a | n/a | % queries correct (higher better) |
+| Temporal accuracy: 30 facts x 2 windows, 10 time queries | 40.0% | n/a | n/a | % queries correct (higher better) |
 | Deletion compliance: forget src_b + 1 proposition (recall/precision) | R:100.0% / P:100.0% (orphans:0) | R:63.0% / P:100.0% (orphans:20) | R:63.0% / P:100.0% (orphans:20) | recall / precision % (higher better) |
 | Zombie resistance: P killed by Q, P re-asserted 5x | 100.0% | 0.0% | 0.0% | % pairs P stayed dead (higher better) |
 | Audit completeness: why-retracted? state-at-T? | 100.0% | 0.0% | 0.0% | % questions answerable (higher better) |
