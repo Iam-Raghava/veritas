@@ -75,10 +75,13 @@ class Explainer:
         if not events:
             return f"No rejection record for '{proposition}'."
         e = events[-1]
+        # Store logs 'new_entrenchment' for rejections; check both keys.
+        ent = e.details.get("new_entrenchment",
+                            e.details.get("entrenchment", "unknown"))
         return (
             f"Proposition '{proposition}' was rejected.\n"
             f"Reason: {e.reason}\n"
-            f"Entrenchment: {e.details.get('entrenchment', 'unknown')}"
+            f"Entrenchment: {ent}"
         )
 
     def belief_lineage(self, belief_id: str) -> str:
