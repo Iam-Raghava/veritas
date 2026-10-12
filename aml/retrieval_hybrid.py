@@ -9,6 +9,11 @@ The dense model is local ONNX (aml/dense.py) — no API costs, no torch.
 Set VERITAS_DENSE_DIR to the directory with model.onnx + tokenizer.json.
 If unset or unloadable, falls back to TF-IDF alone — never crashes.
 
+Academic-board path: VERITAS_DENSE_BACKEND=dashscope uses DashScope
+text-embedding-v4 via API (aml/dense_dashscope.py) instead of the local
+ONNX model. Default backend is "local"; the swap is an env var, not a
+code change, so the board choice stays reversible until deploy time.
+
 Kept separate from retrieval.py (pure TF-IDF) so the model-free
 story stays intact; the AML service selects via RETRIEVAL_MODE env.
 """
@@ -55,6 +60,17 @@ class HybridRetriever:
         return self._reranker is not None
 
     def _init_dense(self) -> None:
+        backend = os.environ.get("VERITAS_DENSE_BACKEND", "local").lower()
+        if backend == "dashscope":
+            try:
+                from dense_dashscope import DashScopeEmbedder
+            except ImportError:
+                from aml.dense_dashscope import DashScopeEmbedder
+            self._dense = DashScopeEmbedder.load()
+            if self._dense is None:
+                print("[hybrid] dashscope backend selected but unavailable "
+                      "(set DASHSCOPE_API_KEY); TF-IDF only")
+            return
         try:
             from dense import DenseEmbedder
         except ImportError:
