@@ -2,7 +2,7 @@
 
 Running NLI or LLM-as-a-judge across thousands of beliefs is O(N) per
 assertion. This module uses dense embeddings (BGE-M3 via ONNX, from the
-AML stack) to retrieve the top-K semantically similar candidates, then
+veritas.dense embedder) to retrieve the top-K semantically similar candidates, then
 runs the expensive detector only on those.
 
 This reduces contradiction search from O(N) to O(K) where K << N.
@@ -52,8 +52,15 @@ class VectorPrefilterDetector:
         self._dense_dir = (
             dense_dir
             or os.environ.get("VERITAS_DENSE_DIR")
-            or os.path.expanduser("~/workspace/models/bge-m3")
+            # No hardcoded fallback: user must specify dense_dir or
+            # VERITAS_DENSE_DIR. Fails clearly if not provided.
         )
+        if not self._dense_dir:
+            raise ValueError(
+                "VectorPrefilterDetector requires dense_dir or "
+                "VERITAS_DENSE_DIR environment variable. "
+                "No default model path is assumed."
+            )
         # Cache: belief_id -> embedding. Invalidated on store mutations
         # via the generation counter (set by attach_store).
         self._emb_cache: dict[str, object] = {}
@@ -68,10 +75,7 @@ class VectorPrefilterDetector:
         """Lazy-load the ONNX embedder."""
         if self._embedder is None:
             try:
-                import sys
-                sys.path.insert(0, os.path.join(
-                    os.path.dirname(__file__), "..", "aml"))
-                from dense import DenseEmbedder
+                from veritas.dense import DenseEmbedder
                 self._embedder = DenseEmbedder(self._dense_dir)
             except Exception as e:
                 # No embedder available; fall back to brute force.
