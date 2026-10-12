@@ -214,35 +214,41 @@ def load(path: str) -> BeliefStore:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(beliefs)")]
         has_ground = "ground" in cols
         has_temporal = "valid_from" in cols
-        for r in conn.execute(
-            "SELECT id, proposition, confidence, source, source_reliability,"
-            " justifications, timestamp, status, metadata"
-            + (", ground" if has_ground else "")
-            + (", valid_from, valid_until" if has_temporal else "")
-            + " FROM beliefs"
-        ):
-            idx = 9
-            ground_val = bool(r[idx]) if has_ground else False
-            if has_ground:
-                idx += 1
-            vf = r[idx] if has_temporal else None
-            vu = r[idx + 1] if has_temporal else None
-            b = Belief(
-                proposition=r[1],
-                confidence=r[2],
-                source=r[3],
-                source_reliability=r[4],
-                justifications=json.loads(r[5]),
-                id=r[0],
-                timestamp=r[6],
-                status=r[7],
-                metadata=json.loads(r[8]),
-                ground=ground_val,
-                valid_from=vf,
-                valid_until=vu,
-            )
-            # Bypass assert_belief: we are restoring, not reasoning.
-            store._store(b)
+        # Bulk-load mode: skip per-belief re-derivation (O(N^2)).
+        store._bulk_loading = True
+        try:
+            for r in conn.execute(
+                "SELECT id, proposition, confidence, source, source_reliability,"
+                " justifications, timestamp, status, metadata"
+                + (", ground" if has_ground else "")
+                + (", valid_from, valid_until" if has_temporal else "")
+                + " FROM beliefs"
+            ):
+                idx = 9
+                ground_val = bool(r[idx]) if has_ground else False
+                if has_ground:
+                    idx += 1
+                vf = r[idx] if has_temporal else None
+                vu = r[idx + 1] if has_temporal else None
+                b = Belief(
+                    proposition=r[1],
+                    confidence=r[2],
+                    source=r[3],
+                    source_reliability=r[4],
+                    justifications=json.loads(r[5]),
+                    id=r[0],
+                    timestamp=r[6],
+                    status=r[7],
+                    metadata=json.loads(r[8]),
+                    ground=ground_val,
+                    valid_from=vf,
+                    valid_until=vu,
+                )
+                # Bypass assert_belief: we are restoring, not reasoning.
+                store._store(b)
+        finally:
+            # Bulk load complete: re-enable re-derivation.
+            store._bulk_loading = False
 
         # Restore audit log preserving original sequence/timestamps.
         log = AuditLog()
