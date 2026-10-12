@@ -18,8 +18,11 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from veritas.belief import Belief
@@ -79,8 +82,10 @@ class VectorPrefilterDetector:
                 self._embedder = DenseEmbedder(self._dense_dir)
             except Exception as e:
                 # No embedder available; fall back to brute force.
-                print(f"[vector_prefilter] embedder unavailable ({e}); "
-                      f"using brute force")
+                _logger.warning(
+                    "vector_prefilter embedder unavailable (%s); using brute force",
+                    e,
+                )
                 self._embedder = False
         return self._embedder if self._embedder is not False else None
 
