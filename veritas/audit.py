@@ -40,10 +40,17 @@ class AuditEvent:
 
 
 class AuditLog:
-    """Simple append-only log. Kept in memory; serialize via to_dicts()."""
+    """Simple append-only log. Kept in memory; serialize via to_dicts().
 
-    def __init__(self) -> None:
+    WARNING: Unbounded by default. For long-running agents, set max_events
+    or periodically call to_dicts() and clear(). Without bounds, this will
+    consume memory proportional to total operations.
+    """
+
+    def __init__(self, max_events: int | None = None) -> None:
         self._events: list[AuditEvent] = []
+        self._max_events = max_events
+        self._dropped = 0
 
     def record(
         self,
@@ -68,6 +75,12 @@ class AuditLog:
             details=dict(details or {}),
         )
         self._events.append(event)
+        # Enforce bound: drop oldest if exceeding max_events.
+        if self._max_events is not None and len(self._events) > self._max_events:
+            # Keep the most recent max_events; count dropped.
+            excess = len(self._events) - self._max_events
+            self._events = self._events[excess:]
+            self._dropped += excess
         return event
 
     def __len__(self) -> int:
