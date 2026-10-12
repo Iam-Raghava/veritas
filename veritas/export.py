@@ -76,11 +76,11 @@ def to_graphml(store: BeliefStore) -> str:
         '  <graph id="beliefs" edgedefault="directed">',
     ]
     for b in store.all_beliefs():
-        from xml.sax.saxutils import escape
+        from xml.sax.saxutils import escape, quoteattr
         prop = escape(b.proposition, entities={'"': "&quot;", "'": "&apos;"})
-        lines.append(f'    <node id="{b.id}">')
+        lines.append(f'    <node id={quoteattr(b.id)}>')
         lines.append(f'      <data key="proposition">{prop}</data>')
-        lines.append(f'      <data key="status">{b.status}</data>')
+        lines.append(f'      <data key="status">{escape(b.status)}</data>')
         lines.append(
             f'      <data key="entrenchment">{store.entrenchment_of(b):.4f}</data>'
         )
