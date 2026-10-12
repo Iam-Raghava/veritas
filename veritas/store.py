@@ -102,6 +102,13 @@ class BeliefStore:
             # Keep the detector object for pre-filtering (e.g.,
             # VectorPrefilterDetector.find_contradictors).
             self.detector = detector
+            # Wire vector pre-filter: detectors with attach_store need
+            # the store reference to access active beliefs.
+            if hasattr(detector, "attach_store"):
+                try:
+                    detector.attach_store(self)
+                except Exception:
+                    pass  # fail-open: pre-filter just won't run
         else:
             raw_fn = contradiction_fn or heuristic_contradiction
             # Always wrap for commutativity (symmetric contradiction).
@@ -1306,9 +1313,35 @@ class BeliefStore:
                 in_deg[dep_idx] -= 1
                 if in_deg[dep_idx] == 0:
                     queue.append(dep_idx)
-        # Cycle fallback: append remaining in input order.
+        # Cycle fallback: detect circular justifications. Items in a cycle
+        # cannot be topologically ordered; if they're non-ground with no
+        # external ground anchor, they'd be rejected as zombies anyway.
+        # Log a warning and append in input order (best effort).
         if len(order) < n:
             remaining = [i for i in range(n) if i not in order]
+            # Check if cycle members have external (non-cycle) justifications.
+            cycle_set = set(remaining)
+            for i in remaining:
+                item = items[i]
+                justs = item.get("justifications") or []
+                # If non-ground and all justifications are within the cycle,
+                # this will fail as zombie — warn now.
+                if not item.get("ground") and justs:
+                    all_internal = True
+                    for j in justs:
+                        refs = j if isinstance(j, list) else [j]
+                        for ref in refs:
+                            if ref in id_to_idx and id_to_idx[ref] not in cycle_set:
+                                all_internal = False
+                                break
+                    if all_internal:
+                        import warnings
+                        warnings.warn(
+                            f"assert_batch: circular justification detected "
+                            f"for item {i} (proposition: "
+                            f"{item.get('proposition', '?')[:50]}); "
+                            f"may be rejected as ungrounded"
+                        )
             order.extend(remaining)
         # Assert in topological order. The @_locked decorator holds
         # the lock once for the entire batch (RLock is reentrant, so
@@ -1712,37 +1745,42 @@ class BeliefStore:
                          "doomed": list(doomed)},
                     )
                     continue
-                # Outranks all and not doomed: retract the contradictors
-                # (like assert_belief).
+                # Outranks all and not doomed: check N-ary constraints
+                # HYPOTHETICALLY before retracting contradictors.
+                # Simulate: active - contradictors + B.
+                if self._constraints:
+                    contra_ids_sim = {c.id for c in contradictors}
+                    sim_beliefs = [
+                        bb.snapshot() for bid, bb in self._beliefs.items()
+                        if (bb.is_active and bid not in contra_ids_sim)
+                        or bid == b.id
+                    ]
+                    violated_ids: set[str] = set()
+                    for _name, _check in self._constraints.items():
+                        try:
+                            vids = _check(sim_beliefs)
+                            violated_ids.update(vids)
+                        except Exception:
+                            continue
+                    if b.id in violated_ids:
+                        # B would violate constraints; block WITHOUT
+                        # touching contradictors (transactional).
+                        self._audit.record(
+                            "rederived_blocked",
+                            b.id,
+                            b.proposition,
+                            "re-derivation blocked: N-ary constraint "
+                            "violation (contradictors untouched)",
+                            {"premise": belief_id},
+                        )
+                        continue
+                # Constraints pass: retract the contradictors.
                 for c in contradictors:
                     self._retract_single(
                         c.id,
                         f"contradicted by re-derived '{b.proposition}'",
                         cascade=True,
                     )
-            # CONSTRAINT CHECK: N-ary constraints must allow B's return.
-            # Simulate adding B to the active set and run constraint checks.
-            if self._constraints:
-                sim_beliefs = [
-                    bb.snapshot() for bid, bb in self._beliefs.items()
-                    if bb.is_active or bid == b.id
-                ]
-                violated_ids: set[str] = set()
-                for _name, _check in self._constraints.items():
-                    try:
-                        vids = _check(sim_beliefs)
-                        violated_ids.update(vids)
-                    except Exception:
-                        continue  # fail-open, like _simulate_constraint_contraction
-                if b.id in violated_ids:
-                    self._audit.record(
-                        "rederived_blocked",
-                        b.id,
-                        b.proposition,
-                        "re-derivation blocked: N-ary constraint violation",
-                        {"premise": belief_id},
-                    )
-                    continue
             # Safe to re-derive.
             b.status = "active"
             self._index(b)
