@@ -70,10 +70,16 @@ class SQLiteBackend(PersistenceBackend):
 
 
 class PostgresBackend(PersistenceBackend):
-    """PostgreSQL backend for enterprise multi-agent deployments.
+    """PostgreSQL backend for single-process persistence.
 
-    Uses a single table for beliefs and audit events, with UPSERT
-    semantics. Safe for concurrent writers (uses row-level locking).
+    WARNING: NOT safe for concurrent writers. The save() method uses
+    DELETE WHERE id NOT IN (live_ids) which will DELETE beliefs written
+    by other processes. This is a single-writer sync pattern, not a
+    multi-writer database. Do NOT deploy with multiple pods/workers
+    writing to the same database.
+
+    Veritas is in-process epistemic middleware, not a distributed
+    database. Use this backend for single-process durability only.
     """
 
     SCHEMA = """
