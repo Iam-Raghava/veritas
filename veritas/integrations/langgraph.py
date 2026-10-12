@@ -132,16 +132,3 @@ class VeritasMemoryStore:
         if belief_id:
             self.store.retract_belief(
                 belief_id, reason="deleted from LangGraph store")
-
-    def as_langgraph_store(self):
-        """Return a LangGraph-compatible Store (if langgraph installed)."""
-        try:
-            from langgraph.store.base import BaseStore
-        except ImportError:
-            raise ImportError(
-                "langgraph is required: pip install langgraph")
-        # Wrap this instance in a BaseStore-compatible adapter.
-        # (Full adapter implementation depends on langgraph version.)
-        raise NotImplementedError(
-            "Native BaseStore adapter pending langgraph version pin. "
-            "Use put/get/search/delete directly.")
