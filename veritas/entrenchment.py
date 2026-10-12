@@ -79,12 +79,24 @@ def order_by_entrenchment(
 ) -> list[Belief]:
     """Sort beliefs by entrenchment. Ascending = weakest first (retraction order).
 
-    Ties break by belief ID: the order is fully deterministic, independent
-    of hash randomization. (Tied beliefs are equivalent for the retraction
-    decision; determinism is for reproducibility.)
+    Ties break by timestamp (older wins — the incumbent is preferred when
+    entrenchment is equal), then by proposition hash for full determinism.
+    This is principled, not random: recency is already a component of
+    entrenchment, so timestamp tie-breaking is consistent with the
+    epistemic ordering.
     """
+    def _tie_key(b: Belief) -> tuple:
+        # Negative timestamp: older (smaller ts) -> larger -ts.
+        # In ascending (weakest-first) order, newer comes first for ties
+        # (older incumbent wins by being later = stronger).
+        # In descending order, the reverse applies via reverse=True.
+        # Proposition hash ensures determinism even with equal timestamps.
+        ts = b.timestamp if b.timestamp is not None else 0.0
+        ph = hash(b.proposition) & 0xFFFFFFFF
+        return (-ts, ph)
+
     return sorted(
         beliefs,
-        key=lambda b: (entrenchment(b, weights), b.id),
+        key=lambda b: (entrenchment(b, weights), _tie_key(b)),
         reverse=not ascending,
     )
