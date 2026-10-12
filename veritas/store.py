@@ -171,7 +171,7 @@ class BeliefStore:
     def generation(self) -> int:
         """Monotonic counter bumped on every graph mutation.
 
-        External indexes (e.g. the AML TF-IDF retriever) can compare
+        External indexes (e.g. the vector prefilter) can compare
         this against their build generation to know when to rebuild.
         """
         with self._lock:
@@ -357,10 +357,7 @@ class BeliefStore:
         # Lazy embedder (cached on the store).
         if not hasattr(self, "_vector_embedder"):
             try:
-                import sys
-                sys.path.insert(0, os.path.join(
-                    os.path.dirname(__file__), "..", "aml"))
-                from dense import DenseEmbedder
+                from veritas.dense import DenseEmbedder
                 dense_dir = (
                     os.environ.get("VERITAS_DENSE_DIR")
                     or os.path.expanduser("~/workspace/models/bge-m3")
@@ -1676,7 +1673,10 @@ class BeliefStore:
         # re-asserted (or a new belief with the same ID pattern), check
         # retracted dependents — their preserved justifications may now
         # be satisfiable again.
-        if belief.is_active:
+        # Skip during bulk load (persist.load sets _bulk_loading=True):
+        # re-derivation on every row is O(N^2). The loaded state is
+        # already consistent; no re-derivation needed.
+        if belief.is_active and not getattr(self, "_bulk_loading", False):
             self._try_rederive_dependents(belief.id)
 
     def _try_rederive_dependents(self, belief_id: str) -> None:
