@@ -17,7 +17,10 @@ RETRACTED = "retracted"
 
 
 def _new_id() -> str:
-    return uuid.uuid4().hex[:12]
+    # Full 128-bit UUID hex. The old 12-char truncation (48 bits) had
+    # 50% collision probability at ~16M beliefs. Full UUIDs are safe
+    # for any realistic deployment size.
+    return uuid.uuid4().hex
 
 
 def _normalize_justifications(
@@ -103,6 +106,9 @@ class Belief:
             raise ValueError("confidence must be in [0, 1]")
         if not 0.0 <= self.source_reliability <= 1.0:
             raise ValueError("source_reliability must be in [0, 1]")
+        if (self.valid_from is not None and self.valid_until is not None
+                and self.valid_from > self.valid_until):
+            raise ValueError("valid_from cannot be greater than valid_until")
         if not self.id:
             self.id = _new_id()
         if self.timestamp is None:
