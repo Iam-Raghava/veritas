@@ -59,7 +59,7 @@ _SPOSSESSIVE = re.compile(
     r"^\s*(?P<subj>.+?)'s\s+(?P<rel>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE
 )
 _SPLAIN = re.compile(
-    r"^\s*(?P<subj>.+?)\s+(?P<rel>CEO|ceo|headquarters|founder|capital|population)\s+is\s+(?P<obj>.+?)\s*$"
+    r"^\s*(?P<subj>.+?)\s+(?P<rel>CEO|ceo|headquarters|founder|capital|population|subscription|status|plan|tier|owner|manager|lead)\s+is\s+(?P<obj>.+?)\s*$"
 )
 _SIS = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
 _SIS_NOT = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+not\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
@@ -141,6 +141,9 @@ FUNCTIONAL_RELATIONS = frozenset({
     "company", "employer",  # primary employer
     "school", "university", "college",  # current
     "major",  # primary field of study
+    "subscription", "plan", "tier", "status",  # service level (one at a time)
+    "owner",  # primary owner
+    "target", "destination", "deployment target",  # single active target
 })
 
 def heuristic_contradiction(
