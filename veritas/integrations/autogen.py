@@ -60,7 +60,7 @@ class VeritasChatMemory:
                     "claim_confidence": claim.confidence,
                     "spo": {
                         "subject": claim.subject,
-                        "predicate": claim.predicate,
+                        "predicate": claim.relation,
                         "object": claim.object,
                     } if claim.subject else None,
                 },
