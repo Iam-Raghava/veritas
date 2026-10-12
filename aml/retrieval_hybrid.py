@@ -60,17 +60,8 @@ class HybridRetriever:
         return self._reranker is not None
 
     def _init_dense(self) -> None:
-        backend = os.environ.get("VERITAS_DENSE_BACKEND", "local").lower()
-        if backend == "dashscope":
-            try:
-                from dense_dashscope import DashScopeEmbedder
-            except ImportError:
-                from aml.dense_dashscope import DashScopeEmbedder
-            self._dense = DashScopeEmbedder.load()
-            if self._dense is None:
-                print("[hybrid] dashscope backend selected but unavailable "
-                      "(set DASHSCOPE_API_KEY); TF-IDF only")
-            return
+        # Local ONNX backend (BGE-M3). The DashScope API backend was removed
+        # when the competition entry was dropped; local is the only backend.
         try:
             from dense import DenseEmbedder
         except ImportError:
