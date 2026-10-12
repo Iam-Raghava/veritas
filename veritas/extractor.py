@@ -26,9 +26,12 @@ Implementations:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -230,8 +233,10 @@ Example output:
                 ]
         except Exception as e:
             # Fail open: fall back to heuristic.
-            print(f"[StructuredLLMExtractor] LLM failed ({e}); "
-                  f"falling back to heuristic")
+            _logger.warning(
+                "StructuredLLMExtractor LLM failed (%s); falling back to heuristic",
+                e,
+            )
             return HeuristicExtractor().extract_claims(text, source=source)
 
 
