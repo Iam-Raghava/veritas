@@ -29,3 +29,10 @@ primary_region = "ord"
 [[mounts]]
   source = "veritas-data"
   destination = "/data"
+
+# Both ONNX models (BGE-M3 ~570MB + reranker ~280MB) load at startup;
+# the default 256MB machine OOMs. 2GB shared is the minimum that holds them.
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 2
