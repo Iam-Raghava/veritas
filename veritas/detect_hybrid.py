@@ -47,13 +47,20 @@ class HybridDetector(Detector):
 
     def contradicts(self, a: Belief, b: Belief) -> bool:
         # Layer 1: heuristic (fast, transparent)
-        # If both parse as functional, we have a definitive answer.
+        # If both parse as functional with SAME relation, we have a
+        # definitive answer. If relations differ (e.g., "ceo" vs
+        # "chief executive officer"), heuristic returns False but we
+        # MUST still try NLI — the paraphrase might be a contradiction.
         pa = functional_parts(a.proposition)
         pb = functional_parts(b.proposition)
         if pa is not None and pb is not None:
-            return heuristic_contradiction(a, b)
+            if pa[1] == pb[1]:
+                # Same relation: heuristic is definitive.
+                return heuristic_contradiction(a, b)
+            # Different relation names: fall through to NLI.
+            # (e.g., "ceo" vs "chief executive officer")
 
-        # Layer 2: NLI fallback for unparsable pairs
+        # Layer 2: NLI fallback for unparsable or paraphrased pairs
         return self._nli_contradicts(a.proposition, b.proposition)
 
     def _nli_contradicts(self, p1: str, p2: str) -> bool:
