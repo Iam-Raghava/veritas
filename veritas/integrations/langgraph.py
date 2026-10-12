@@ -66,14 +66,11 @@ class VeritasMemoryStore:
         # retract it (the new value supersedes, not depends on, the old).
         # Do NOT use justifications=[[old_id]] — that's a category error:
         # a state update doesn't derive warrant from the prior value.
+        #
+        # TRANSACTIONAL: assert the new belief FIRST. Only retract the old
+        # if the new one succeeds. If assert_belief returns None (rejected),
+        # the old belief remains intact — no data loss.
         old_id = self._index.get((namespace, key))
-        if old_id:
-            old_belief = self.store.get(old_id)
-            if old_belief and old_belief.is_active:
-                self.store.retract_belief(
-                    old_id,
-                    reason=f"superseded by state update at '{ns_key}'",
-                )
         belief = self.store.assert_belief(
             proposition,
             source=source or f"langgraph:{ns_key}",
@@ -90,7 +87,17 @@ class VeritasMemoryStore:
             },
         )
         if belief is not None:
+            # New belief accepted: now retract the old one.
+            if old_id:
+                old_belief = self.store.get(old_id)
+                if old_belief and old_belief.is_active:
+                    self.store.retract_belief(
+                        old_id,
+                        reason=f"superseded by state update at '{ns_key}'",
+                    )
             self._index[(namespace, key)] = belief.id
+        # If belief is None (rejected), old_id remains in _index and the
+        # old belief stays active. No data loss.
 
     def get(
         self, namespace: tuple, key: str,
