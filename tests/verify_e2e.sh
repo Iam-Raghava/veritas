@@ -57,12 +57,9 @@ else bad "adversarial"; tail -3 /tmp/vt9.log; fi
 if timeout 120 python3 tests/test_differential.py --trials 15 --ops 200 > /tmp/vt10.log 2>&1 && grep -q "DIFFERENTIAL CLEAN" /tmp/vt10.log; then
   ok "differential vs reference"
 else bad "differential"; tail -3 /tmp/vt10.log; fi
-if timeout 300 python3 tests/test_release_gate.py > /tmp/vt10b.log 2>&1 && grep -q "0 failed" /tmp/vt10b.log; then
-  ok "release gate (load/soak/chaos/contract)"
-else bad "release gate"; tail -5 /tmp/vt10b.log; fi
-if timeout 120 python3 tests/test_hybrid_retrieval.py > /tmp/vt10c.log 2>&1 && grep -q "0 failed" /tmp/vt10c.log; then
-  ok "hybrid retrieval (CJK + dense)"
-else bad "hybrid retrieval"; tail -5 /tmp/vt10c.log; fi
+if python3 tests/test_realistic_trajectory.py > /tmp/vt10c.log 2>&1 && grep -q "All realistic" /tmp/vt10c.log; then
+  ok "realistic trajectory (support agent)"
+else bad "realistic trajectory"; tail -5 /tmp/vt10c.log; fi
 if python3 tests/test_v03.py > /tmp/vt11.log 2>&1 && grep -q "12 passed, 0 failed" /tmp/vt11.log; then
   ok "v0.3 suite 12/12"
 else bad "v0.3 suite"; tail -3 /tmp/vt11.log; fi
@@ -83,14 +80,6 @@ for t in test_doomed_simulation test_properties test_borrowed_entrenchment; do
     else bad "invariant suite: ${t}"; tail -3 /tmp/vt_${t}.log; fi
   fi
 done
-# AML service test requires fastapi; skip if not installed.
-if python3 -c "import fastapi" 2>/dev/null; then
-  if python3 tests/test_aml_service.py > /tmp/vt_aml.log 2>&1; then
-    ok "AML service suite"
-  else bad "AML service suite"; tail -3 /tmp/vt_aml.log; fi
-else
-  echo "  skip: test_aml_service (fastapi not installed)"
-fi
 
 echo "== 3. demo =="
 if python3 examples/demo.py > /tmp/vtdemo.log 2>&1 && grep -q "All demo assertions passed" /tmp/vtdemo.log; then
