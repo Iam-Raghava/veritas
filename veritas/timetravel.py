@@ -59,10 +59,12 @@ class TimeTravel:
                 if not event.details.get("survived", False):
                     active.pop(event.belief_id, None)
             elif event.event_type == "rederived":
-                # Re-derivation: belief came back IN.
+                # Re-derivation: belief came back IN. Explicitly mark
+                # active (snapshot may predate the status flip).
                 snap = event.details.get("belief_snapshot")
                 if snap:
                     b = Belief.from_dict(snap)
+                    b.status = "active"
                     active[event.belief_id] = b
         return list(active.values())
 
