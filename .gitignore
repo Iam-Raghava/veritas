@@ -10,3 +10,5 @@ mutants/
 
 # build artifacts
 *.egg-info/
+dist/
+build/
