@@ -77,33 +77,14 @@ SQLite backend. Round-trips: beliefs, audit log, config, **policy** (fixed — c
 
 ---
 
-## 3. AML Service (aml/ package) — Agent Memory Challenge Entry
+## 3. Competition service — REMOVED 2026-10-12
 
-**Purpose:** HTTP Add/Search API for the Agent Memory Challenge 2026 Cycle 2, Textual Memory track.
-
-### 3.1 API (`aml/app.py` v0.2.0)
-- `POST /add` — `{items: [{text, timestamp?, source?, confidence?, source_reliability?}]}`. Each item asserted as a ground belief. **Same-source supersession:** if a source submits a newer report contradicting its own older one, the older is retracted as "superseded" (audited), not adjudicated as a contradiction.
-- `POST /search` — `{query, top_k?, as_of?}` → `{evidence: [...]}`. Returns only ACTIVE beliefs.
-- `GET /health` — liveness probe.
-- `GET /ready` — readiness probe (checks DB writability, retriever status, dense model loaded, store consistency).
-- `GET /metrics` — Prometheus-style (request counts, p50/p99 latencies, error rates, uptime, active beliefs).
-- **Production features:** structured logging with X-Request-ID tracing, input limits (MAX_BATCH=1000, MAX_TEXT_LEN=100000), graceful shutdown persists store, unhandled errors return request_id (never bare 500).
-
-### 3.2 Retrieval stack (6 layers)
-1. **CJK-aware TF-IDF** (`aml/retrieval.py`): character bigrams for Chinese/Japanese/Korean (whitespace tokenization returns zero tokens for CJK — caught and fixed). Model-free fallback.
-2. **Dense embeddings** (`aml/dense.py`): ONNX via onnxruntime + tokenizers (no torch). **BGE-M3** (1024-dim, 100+ languages). Adaptive to model inputs (some want token_type_ids, some don't). Empty-input guard (caught a crash). Incremental indexing — only new beliefs embedded (fixed a 7.7s/query bottleneck → 0.6s/query).
-3. **RRF fusion** (`aml/retrieval_hybrid.py`): Reciprocal Rank Fusion combines dense + TF-IDF rankings.
-4. **Query expansion:** pseudo-relevance feedback — learns distinctive terms from top TF-IDF hits ("CEO" → "CEO acme chief executive officer"). Disable via VERITAS_EXPAND=0.
-5. **Cross-encoder rerank** (`aml/rerank.py`): bge-reranker-base (quantized ONNX, 279MB) rescores top-20 candidates. Verified separation: relevant 6.4/3.9 vs irrelevant -3.1.
-6. **Deduplication:** near-identical texts collapsed.
-
-**Graceful degradation chain:** rerank → hybrid → TF-IDF. Never crashes on missing models.
-
-### 3.3 Deployment
-- `aml/Dockerfile`: bundles BGE-M3 + reranker at build time from ONNX community mirror.
-- `aml/docker-compose.yml`: one-command deploy with healthchecks on /ready.
-- `aml/fly.toml`: fly.io config.
-- `aml/requirements.txt`: fastapi, uvicorn, onnxruntime, tokenizers, numpy.
+The Agent Memory Challenge entry (`aml/` FastAPI service, Docker/Fly config,
+`docs/AML_CHALLENGE_ENTRY_PLAN.md`, `docs/AML_SUBMISSION.md`) was deleted in
+commit 33b7bb0: the ~$25 hosting cost broke the zero-investment constraint and
+the project pivoted to direct frontier-lab outreach. The ONNX dense embedder
+survives as `veritas/dense.py` (core vector prefilter, local BGE-M3, no API
+costs); everything else competition-specific is gone.
 
 ---
 
