@@ -33,7 +33,6 @@ from .persist import load, register_detector, save
 from .persist_backend import (
     PersistenceBackend,
     SQLiteBackend,
-    PostgresBackend,
     get_backend,
 )
 from .extractor import Claim, ClaimExtractor, HeuristicClaimExtractor
@@ -96,6 +95,5 @@ __all__ = [
     "VectorPrefilterDetector",
     "PersistenceBackend",
     "SQLiteBackend",
-    "PostgresBackend",
     "get_backend",
 ]
