@@ -53,7 +53,7 @@ class VeritasCrewMemory:
         """Format active beliefs as context for the agent."""
         beliefs = sorted(
             self.store.active_beliefs(),
-            key=lambda b: b.timestamp,
+            key=lambda b: b.timestamp or 0.0,
         )[-max_beliefs:]
         if not beliefs:
             return "(no beliefs)"
