@@ -12,6 +12,7 @@ component is in [0, 1] and the weights sum to 1, so entrenchment is in
 """
 from __future__ import annotations
 
+import hashlib
 import math
 
 from .belief import Belief
@@ -90,9 +91,12 @@ def order_by_entrenchment(
         # In ascending (weakest-first) order, newer comes first for ties
         # (older incumbent wins by being later = stronger).
         # In descending order, the reverse applies via reverse=True.
-        # Proposition hash ensures determinism even with equal timestamps.
+        # Proposition digest ensures determinism even with equal timestamps.
+        # MUST be a stable digest (SHA-256), never Python's built-in hash(),
+        # which varies per interpreter seed and would break determinism.
         ts = b.timestamp if b.timestamp is not None else 0.0
-        ph = hash(b.proposition) & 0xFFFFFFFF
+        digest = hashlib.sha256(b.proposition.encode("utf-8")).digest()
+        ph = int.from_bytes(digest[:8], "big")
         return (-ts, ph)
 
     return sorted(
