@@ -6,9 +6,9 @@
 from veritas import BeliefStore
 
 store = BeliefStore()
-store.assert_belief("CEO is Alice", source="board_meeting", source_reliability=0.95, ground=True)
-store.assert_belief("CEO is Bob", source="twitter_rumor", source_reliability=0.2)
-# → "CEO is Bob" rejected. Alice stays. Audited. Deterministic.
+store.assert_belief("Acme's CEO is Alice", source="board_meeting", source_reliability=0.95, ground=True)
+store.assert_belief("Acme's CEO is Bob", source="twitter_rumor", source_reliability=0.2)
+# → "Acme's CEO is Bob" rejected. Alice stays. Audited. Deterministic.
 ```
 
 Every long-lived agent accumulates contradictions. A CEO changes, a deadline moves, an assumption proves false — and the agent's memory quietly rots. Today's systems handle this three ways, all broken:
