@@ -51,6 +51,16 @@ class AsyncBeliefStore:
             self._store.retract_belief, belief_id, reason
         )
 
+    async def assert_batch(
+        self, items: list[dict],
+    ) -> list[Belief | None]:
+        """Async wrapper for BeliefStore.assert_batch.
+
+        Runs in a worker thread (the sync version holds the store lock
+        for the entire batch, which would block the event loop).
+        """
+        return await asyncio.to_thread(self._store.assert_batch, items)
+
     async def get(self, belief_id: str) -> Belief | None:
         return await asyncio.to_thread(self._store.get, belief_id)
 
