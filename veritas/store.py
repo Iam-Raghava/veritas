@@ -101,7 +101,7 @@ class BeliefStore:
             self.detector_name = getattr(detector, "name", "custom")
             # Keep the detector object for pre-filtering (e.g.,
             # VectorPrefilterDetector.find_contradictors).
-            self.detector = detector
+            self.detector: Detector | None = detector
             # Wire vector pre-filter: detectors with attach_store need
             # the store reference to access active beliefs.
             if hasattr(detector, "attach_store"):
@@ -139,6 +139,9 @@ class BeliefStore:
         self._by_functional: dict[tuple[str, str], set[str]] = {}
         self._by_subj_obj: dict[tuple[str, str], set[str]] = {}
         self._contradicts_rev: dict[str, set[str]] = {}
+        # Bulk-load flag: set by persist.load() to suppress per-belief
+        # re-derivation during restore (declared here for mypy).
+        self._bulk_loading: bool = False
         # Invalidation bus: belief_id -> [callbacks]. Fired on retraction
         # so agents holding snapshots can invalidate stale working memory.
         self._subscribers: dict[str, list[Callable]] = {}
@@ -154,7 +157,7 @@ class BeliefStore:
         # generation bumps on any mutation (assert/retract); cache hits
         # avoid the O(subgraph) traversal. Correct because entrenchment
         # is a pure function of the current graph state.
-        self._ent_cache: dict[str, tuple[int, float]] = {}
+        self._ent_cache: dict[str, tuple[int, float, float]] = {}
         self._ent_gen: int = 0
         # Reentrant lock: the store is safe for concurrent use from
         # multiple threads. RLock because public methods call each other
@@ -264,10 +267,10 @@ class BeliefStore:
             age = time.time() - cached[1]
             if age < 3600:  # RECENCY_CACHE_TTL: 1 hour
                 if self.metrics is not None:
-                    self.metrics.cache_hits += 1
+                    self.metrics.incr("cache_hits")
                 return cached[2]
         if self.metrics is not None:
-            self.metrics.cache_misses += 1
+            self.metrics.incr("cache_misses")
 
         from .entrenchment import entrenchment
 
@@ -362,12 +365,13 @@ class BeliefStore:
                     os.environ.get("VERITAS_DENSE_DIR")
                     or os.path.expanduser("~/workspace/models/bge-m3")
                 )
-                self._vector_embedder = DenseEmbedder(dense_dir)
+                self._vector_embedder: DenseEmbedder | None = DenseEmbedder(
+                    dense_dir)
                 self._vector_cache: dict[str, object] = {}
                 self._vector_cache_gen = -1
             except Exception:
                 self._vector_embedder = None
-        if not getattr(self, "_vector_embedder", None):
+        if self._vector_embedder is None:
             return None
         import numpy as np
         embedder = self._vector_embedder
@@ -436,19 +440,19 @@ class BeliefStore:
                 b for b in self.active_beliefs()
                 if b.id != belief.id and self.contradiction_fn(belief, b)
             ]
-        candidates: set[str] = set()
+        candidate_ids: set[str] = set()
         fp = functional_parts(belief.proposition)
         if fp:
-            candidates.update(self._by_functional.get((fp[0], fp[1]), set()))
+            candidate_ids.update(self._by_functional.get((fp[0], fp[1]), set()))
         sp = subject_object_parts(belief.proposition)
         if sp:
-            candidates.update(self._by_subj_obj.get(sp, set()))
+            candidate_ids.update(self._by_subj_obj.get(sp, set()))
         for cid in belief.metadata.get("contradicts", []) or []:
-            candidates.add(cid)
-        candidates.update(self._contradicts_rev.get(belief.id, set()))
-        candidates.discard(belief.id)
+            candidate_ids.add(cid)
+        candidate_ids.update(self._contradicts_rev.get(belief.id, set()))
+        candidate_ids.discard(belief.id)
         result = []
-        for cid in candidates:
+        for cid in candidate_ids:
             other = self._beliefs.get(cid)
             if other is not None and other.is_active and self.contradiction_fn(
                 belief, other
@@ -1302,7 +1306,7 @@ class BeliefStore:
         from collections import deque
         queue: deque[int] = deque(
             i for i in range(n) if in_deg[i] == 0)
-        order: list[int] = []
+        order = []
         while queue:
             i = queue.popleft()
             order.append(i)
@@ -1676,7 +1680,7 @@ class BeliefStore:
         # Skip during bulk load (persist.load sets _bulk_loading=True):
         # re-derivation on every row is O(N^2). The loaded state is
         # already consistent; no re-derivation needed.
-        if belief.is_active and not getattr(self, "_bulk_loading", False):
+        if belief.is_active and not self._bulk_loading:
             self._try_rederive_dependents(belief.id)
 
     def _try_rederive_dependents(self, belief_id: str) -> None:
