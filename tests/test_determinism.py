@@ -114,6 +114,27 @@ with mock.patch("veritas.belief._new_id", lambda: f"id-{next(i):06d}"), \
 """
 
 
+_DIGEST_TIE_HELPER = r"""
+import sys
+sys.path.insert(0, '.')
+from veritas import BeliefStore
+from veritas.entrenchment import order_by_entrenchment
+# Identical entrenchment AND identical timestamps: the ONLY remaining
+# tie-breaker is the proposition digest. Before the SHA-256 fix this used
+# hash(), which varies per PYTHONHASHSEED and produced different orders.
+s = BeliefStore()
+ids = []
+for prop in ["Alpha fact here", "Beta fact here", "Gamma fact here",
+             "Delta fact here"]:
+    b = s.assert_belief(prop, source="x", source_reliability=0.9,
+                        confidence=0.9, ground=True, timestamp=1000.0)
+    ids.append(b.id)
+ordered = order_by_entrenchment([s.get(i) for i in ids],
+                                s.entrenchment_weights)
+print([b.proposition for b in ordered])
+"""
+
+
 def main():
     # Part 1: in-process determinism.
     f1, f2 = run(42), run(42)
@@ -162,6 +183,24 @@ def main():
         f"tie order not ID-sorted: {orders[0]}"
     print(f"TIE-TORTURE DETERMINISTIC: 3-way exact tie retracts in ID "
           f"order on all seeds")
+
+    # Part 4: proposition-digest tie-break. Identical entrenchment AND
+    # identical timestamps — the digest is the only tie-breaker. This is
+    # the case the old hash() tie-break got wrong (order varied by seed).
+    dorders = []
+    for hs in ("0", "1", "42", "99", "12345"):
+        env = dict(os.environ, PYTHONHASHSEED=hs)
+        p = subprocess.run(
+            [sys.executable, "-c", _DIGEST_TIE_HELPER],
+            capture_output=True, text=True, timeout=60,
+            cwd=root, env=env)
+        assert p.returncode == 0, \
+            f"digest-tie helper failed on seed {hs}: {p.stderr[-300:]}"
+        dorders.append(p.stdout.strip())
+    assert len(set(dorders)) == 1, \
+        f"digest tie-break varied by hash seed: {dorders}"
+    print(f"DIGEST-TIE DETERMINISTIC: identical order across "
+          f"PYTHONHASHSEED 0/1/42/99/12345")
 
 
 if __name__ == "__main__":
