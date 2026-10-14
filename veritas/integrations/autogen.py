@@ -71,7 +71,7 @@ class VeritasChatMemory:
         return [
             b.proposition
             for b in sorted(
-                self.store.active_beliefs(), key=lambda b: b.timestamp
+                self.store.active_beliefs(), key=lambda b: b.timestamp or 0.0
             )
         ]
 
