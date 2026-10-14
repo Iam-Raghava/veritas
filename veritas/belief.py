@@ -152,7 +152,8 @@ class Belief:
 
     @property
     def age_days(self) -> float:
-        return max(0.0, (time.time() - self.timestamp) / 86400.0)
+        ts = self.timestamp if self.timestamp is not None else time.time()
+        return max(0.0, (time.time() - ts) / 86400.0)
 
     def snapshot(self) -> "Belief":
         """Independent copy. Mutating it cannot affect the store.
