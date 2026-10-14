@@ -14,6 +14,8 @@ Usage:
 
 from __future__ import annotations
 
+import collections
+import threading
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -21,7 +23,12 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Metrics:
-    """Thread-safe-ish metrics collector (use with store's lock)."""
+    """Thread-safe metrics collector.
+
+    All mutations go through the internal lock, so counters are safe
+    even when called outside the store's lock (e.g., entrenchment_of
+    is a public method that does not hold the store lock).
+    """
 
     assertions: int = 0
     rejections: int = 0
@@ -38,38 +45,48 @@ class Metrics:
         default_factory=dict)
     # Event counters by type.
     events: Counter = field(default_factory=Counter)
+    _lock: threading.Lock = field(default_factory=threading.Lock,
+                                  repr=False, compare=False)
+
+    def incr(self, name: str, amount: int = 1) -> None:
+        """Thread-safe counter increment (e.g., incr("cache_hits"))."""
+        with self._lock:
+            setattr(self, name, getattr(self, name) + amount)
 
     def record(self, event: str, latency: float | None = None) -> None:
-        self.events[event] += 1
-        if latency is not None:
-            import collections
-            dq = self.latencies.get(event)
-            if dq is None:
-                dq = collections.deque(maxlen=1000)
-                self.latencies[event] = dq
-            dq.append(latency)
+        with self._lock:
+            self.events[event] += 1
+            if latency is not None:
+                import collections
+                dq = self.latencies.get(event)
+                if dq is None:
+                    dq = collections.deque(maxlen=1000)
+                    self.latencies[event] = dq
+                dq.append(latency)
 
     def summary(self) -> dict:
-        out = {
-            "assertions": self.assertions,
-            "rejections": self.rejections,
-            "retractions": self.retractions,
-            "cascades": self.cascades,
-            "avg_cascade_size": (
-                self.cascade_size_total / self.cascades if self.cascades else 0
-            ),
-            "contradictions_found": self.contradictions_found,
-            "constraint_violations": self.constraint_violations,
-            "cache_hit_rate": (
-                self.cache_hits / (self.cache_hits + self.cache_misses)
-                if (self.cache_hits + self.cache_misses) else 0
-            ),
-        }
-        for name, samples in self.latencies.items():
-            if samples:
-                out[f"latency_{name}_p50"] = sorted(samples)[len(samples) // 2]
-                out[f"latency_{name}_p99"] = sorted(samples)[int(len(samples) * 0.99)]
-        return out
+        with self._lock:
+            out = {
+                "assertions": self.assertions,
+                "rejections": self.rejections,
+                "retractions": self.retractions,
+                "cascades": self.cascades,
+                "avg_cascade_size": (
+                    self.cascade_size_total / self.cascades if self.cascades else 0
+                ),
+                "contradictions_found": self.contradictions_found,
+                "constraint_violations": self.constraint_violations,
+                "cache_hit_rate": (
+                    self.cache_hits / (self.cache_hits + self.cache_misses)
+                    if (self.cache_hits + self.cache_misses) else 0
+                ),
+            }
+            for name, samples in self.latencies.items():
+                if samples:
+                    s = sorted(samples)
+                    out[f"latency_{name}_p50"] = s[len(s) // 2]
+                    out[f"latency_{name}_p99"] = s[int(len(s) * 0.99)]
+            return out
 
 
 class timed:
