@@ -98,83 +98,93 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
     with store._lock:
         # Use a dedicated connection with WAL mode for multi-process safety.
         # WAL allows concurrent readers; busy_timeout handles writer contention.
+        # isolation_level=None is autocommit mode, so we wrap everything in
+        # an explicit BEGIN/COMMIT: a crash mid-save rolls back to the last
+        # consistent state instead of leaving a torn database.
         conn = sqlite3.connect(path, timeout=5.0, isolation_level=None)
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA busy_timeout=5000;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         try:
+            # Schema first: executescript() implicitly commits any pending
+            # transaction, so it must run before BEGIN.
             conn.executescript(_SCHEMA)
-            # Incremental: upsert beliefs (no full DELETE).
-            current_ids = set()
-            for b in store.all_beliefs():
-                current_ids.add(b.id)
-                conn.execute(
-                    "INSERT OR REPLACE INTO beliefs VALUES "
-                    "(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        b.id,
-                        b.proposition,
-                        b.confidence,
-                        b.source,
-                        b.source_reliability,
-                        _safe_dumps(b.justifications),
-                        b.timestamp,
-                        b.status,
-                        _safe_dumps(b.metadata),
-                        1 if b.ground else 0,
-                        b.valid_from,
-                        b.valid_until,
-                    ),
-                )
-            # Remove beliefs that are no longer in the store (e.g., if the
-            # store was cleared or beliefs were purged).
-            # Chunked to avoid SQLITE_MAX_VARIABLE_NUMBER limit (999 on old
-            # SQLite, 32766 on 3.32+). 500 per chunk is safe everywhere.
-            if current_ids:
-                ids_list = list(current_ids)
-                # Use a temp table to avoid huge IN clauses.
-                conn.execute("CREATE TEMP TABLE IF NOT EXISTS live_ids "
-                             "(id TEXT PRIMARY KEY)")
-                conn.execute("DELETE FROM live_ids")
-                for i in range(0, len(ids_list), 500):
-                    chunk = ids_list[i:i+500]
-                    conn.executemany(
-                        "INSERT OR IGNORE INTO live_ids VALUES (?)",
-                        [(bid,) for bid in chunk],
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                # Incremental: upsert beliefs (no full DELETE).
+                current_ids = set()
+                for b in store.all_beliefs():
+                    current_ids.add(b.id)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO beliefs VALUES "
+                        "(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            b.id,
+                            b.proposition,
+                            b.confidence,
+                            b.source,
+                            b.source_reliability,
+                            _safe_dumps(b.justifications),
+                            b.timestamp,
+                            b.status,
+                            _safe_dumps(b.metadata),
+                            1 if b.ground else 0,
+                            b.valid_from,
+                            b.valid_until,
+                        ),
+                    )
+                # Remove beliefs that are no longer in the store (e.g., if the
+                # store was cleared or beliefs were purged).
+                # Chunked to avoid SQLITE_MAX_VARIABLE_NUMBER limit (999 on old
+                # SQLite, 32766 on 3.32+). 500 per chunk is safe everywhere.
+                if current_ids:
+                    ids_list = list(current_ids)
+                    # Use a temp table to avoid huge IN clauses.
+                    conn.execute("CREATE TEMP TABLE IF NOT EXISTS live_ids "
+                                 "(id TEXT PRIMARY KEY)")
+                    conn.execute("DELETE FROM live_ids")
+                    for i in range(0, len(ids_list), 500):
+                        chunk = ids_list[i:i+500]
+                        conn.executemany(
+                            "INSERT OR IGNORE INTO live_ids VALUES (?)",
+                            [(bid,) for bid in chunk],
+                        )
+                    conn.execute(
+                        "DELETE FROM beliefs WHERE id NOT IN "
+                        "(SELECT id FROM live_ids)"
+                    )
+                    conn.execute("DELETE FROM live_ids")
+                else:
+                    conn.execute("DELETE FROM beliefs")
+                # Audit: append-only; INSERT OR IGNORE skips already-persisted
+                # seq numbers (idempotent on retry).
+                for e in store.audit:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?,?,?)",
+                        (
+                            e.seq,
+                            e.timestamp,
+                            e.event_type,
+                            e.belief_id,
+                            e.proposition,
+                            e.reason,
+                            _safe_dumps(e.details),
+                        ),
                     )
                 conn.execute(
-                    "DELETE FROM beliefs WHERE id NOT IN "
-                    "(SELECT id FROM live_ids)"
+                    "INSERT OR REPLACE INTO meta VALUES (?,?)",
+                    ("config", json.dumps({
+                        "detector_name": detector_name,
+                        "entrenchment_weights": store.entrenchment_weights,
+                        "survival_threshold": store.survival_threshold,
+                        "policy": store.policy,
+                        "schema_version": SCHEMA_VERSION,
+                    })),
                 )
-                conn.execute("DELETE FROM live_ids")
-            else:
-                conn.execute("DELETE FROM beliefs")
-            # Audit: append-only; INSERT OR IGNORE skips already-persisted
-            # seq numbers (idempotent on retry).
-            for e in store.audit:
-                conn.execute(
-                    "INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?,?,?)",
-                    (
-                        e.seq,
-                        e.timestamp,
-                        e.event_type,
-                        e.belief_id,
-                        e.proposition,
-                        e.reason,
-                        _safe_dumps(e.details),
-                    ),
-                )
-            conn.execute(
-                "INSERT OR REPLACE INTO meta VALUES (?,?)",
-                ("config", json.dumps({
-                    "detector_name": detector_name,
-                    "entrenchment_weights": store.entrenchment_weights,
-                    "survival_threshold": store.survival_threshold,
-                    "policy": store.policy,
-                    "schema_version": SCHEMA_VERSION,
-                })),
-            )
-            conn.commit()
+                conn.execute("COMMIT;")
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
         finally:
             conn.close()
 
