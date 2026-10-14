@@ -62,7 +62,7 @@ class VeritasMemory(BaseMemory):  # type: ignore[valid-type,misc]
         lines = [
             f"- {b.proposition} (confidence={b.confidence:.2f}, "
             f"source={b.source})"
-            for b in sorted(beliefs, key=lambda b: b.timestamp)
+            for b in sorted(beliefs, key=lambda b: b.timestamp or 0.0)
         ]
         return {"veritas_beliefs": "\n".join(lines) if lines else "(no beliefs)"}
 
