@@ -27,6 +27,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 ## What's new
 
+- **v0.14.1 — Audit cleanup**: pyflakes clean across all files, mypy clean (31 files), docstring corrections, PEP 562 lazy import for BFT. No behavior changes.
 - **v0.14.0 — Byzantine tolerance**: `ByzantineTolerantLog` — Ed25519-signed events, equivocation detection with automatic blacklisting, author-only retraction. Honest nodes converge despite malicious nodes. `pip install veritas-tms[bft]`.
 - **v0.13.0 — P2P gossip**: `GossipEventLog` — every node keeps a full copy, no single point of failure, partition-tolerant with deterministic merge on heal. No Raft, no leader, no coordinator.
 - **v0.12.0 — Distributed**: `DistributedBeliefStore` shares one consistent belief state across machines via a shared event log. Event sourcing + deterministic replay = eventual convergence, no consensus protocol.
@@ -277,6 +278,10 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.14.1 — audit cleanup:
+- pyflakes clean across `veritas/`, `tests/`, `examples/`.
+- mypy clean (31 files). Docstring corrections.
 
 v0.14.0 — Byzantine-tolerant gossip:
 - `ByzantineTolerantLog(path, node_id, private_key)` — Ed25519 signatures
