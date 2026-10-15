@@ -85,13 +85,19 @@ def _resolve_detector(name: str) -> ContradictionFn:
     )
 
 
-def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> None:
+def save(store: BeliefStore, path: str, detector_name: str | None = None) -> None:
     """Persist a belief store to a SQLite file (created if missing).
 
     Uses incremental updates (INSERT OR REPLACE) instead of full table
     wipes, and holds the store lock during the entire save to prevent
     concurrent mutations from corrupting the iteration.
+
+    detector_name defaults to the store's own detector (not "heuristic"):
+    saving without an explicit name must not silently reset a custom
+    detector to the default.
     """
+    if detector_name is None:
+        detector_name = store.detector_name
     # Hold the store lock for the entire save to prevent the
     # "list changed size during iteration" race.
     with store._lock:
@@ -155,8 +161,21 @@ def save(store: BeliefStore, path: str, detector_name: str = "heuristic") -> Non
                     conn.execute("DELETE FROM live_ids")
                 else:
                     conn.execute("DELETE FROM beliefs")
-                # Audit: append-only; INSERT OR IGNORE skips already-persisted
-                # seq numbers (idempotent on retry).
+                # Audit: append-only for the SAME store (idempotent on retry
+                # via INSERT OR IGNORE on seq). But if a DIFFERENT store is
+                # saved to this path, seq numbers collide (both start at 0)
+                # and the new audit would be silently dropped. Detect via
+                # store_id in meta; clear audit on store change.
+                stored_id_row = conn.execute(
+                    "SELECT value FROM meta WHERE key='store_id'"
+                ).fetchone()
+                stored_id = stored_id_row[0] if stored_id_row else None
+                if stored_id != store._store_id:
+                    conn.execute("DELETE FROM audit")
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta VALUES (?,?)",
+                        ("store_id", store._store_id),
+                    )
                 for e in store.audit:
                     conn.execute(
                         "INSERT OR IGNORE INTO audit VALUES (?,?,?,?,?,?,?)",
@@ -218,6 +237,12 @@ def load(path: str) -> BeliefStore:
             policy=config.get("policy", "entrenchment"),
         )
         store.detector_name = detector_name
+        # Restore store identity: a loaded store is the same logical store
+        # as the one that was saved, so future saves are incremental.
+        sid_row = conn.execute(
+            "SELECT value FROM meta WHERE key='store_id'").fetchone()
+        if sid_row:
+            store._store_id = sid_row[0]
         # Migrations: beliefs table may lack ground (v1->v2) or temporal
         # columns (v3->v4).
         cols = [r[1] for r in conn.execute("PRAGMA table_info(beliefs)")]
