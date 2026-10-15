@@ -71,6 +71,10 @@ class VeritasDocumentStore:
             doc_id = doc["doc_id"]
             text = doc["text"]
             ts = doc.get("timestamp", time.time())
+            # Validate BEFORE retracting old chunks: a failed update must
+            # not destroy the previous version (transactional).
+            if not text or not text.strip():
+                raise ValueError("proposition must be non-empty")
             # If this doc_id was seen with an older timestamp, retract
             # the old chunks (supersession).
             if doc_id in self._doc_ts and ts > self._doc_ts[doc_id]:
