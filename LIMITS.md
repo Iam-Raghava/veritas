@@ -53,10 +53,9 @@ with careful timeout tuning and circuit breakers, or not at all.
 **SQLite:** Single-process only. WAL mode + busy timeout handle
 brief contention, but multiple writers will conflict.
 
-**PostgreSQL:** Single-writer only. The save() method uses DELETE WHERE
-id NOT IN (live_ids) which WILL delete beliefs written by other
-processes. DO NOT use with multiple pods/workers. This is documented
-in the class docstring, not just here.
+**PostgreSQL:** Removed in v0.11.0. The backend was never tested against
+a real server and used destructive multi-writer behavior. PostgreSQL
+URLs are now rejected with a clear error.
 
 ## Audit Log
 
