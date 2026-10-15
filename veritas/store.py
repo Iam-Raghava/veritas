@@ -42,7 +42,7 @@ from .audit import (
     RETRACTED,
     AuditLog,
 )
-from .belief import ACTIVE, RETRACTED as _RETRACTED_STATUS, Belief
+from .belief import RETRACTED as _RETRACTED_STATUS, Belief
 from .detect import (
     ContradictionFn,
     Detector,
@@ -940,7 +940,6 @@ class BeliefStore:
         contradict if their intervals overlap. None means unbounded.
         """
         from .belief import _normalize_justifications
-        from .entrenchment import order_by_entrenchment
 
         # Normalize to Horn clauses, then prune dead premises.
         # A belief cannot be justified by a retracted or nonexistent belief.
@@ -1286,8 +1285,7 @@ class BeliefStore:
         for i, item in enumerate(items):
             justs = item.get("justifications") or []
             for j in justs:
-                jsets = [j] if isinstance(j, str) else j
-                # jsets is now a list of premise refs.
+                # j is a premise ref (str) or a list of refs (AND-set).
                 if isinstance(j, list):
                     refs = j
                 else:
@@ -1395,14 +1393,14 @@ class BeliefStore:
         (recursive). This is AND-OR semantics, not OR-reachability:
         P1∧P2⇒C requires BOTH P1 and P2 to be grounded, not just one.
 
-        Cycle-safe via visited set. Iterative to avoid recursion limits.
+        Cycle-safe via memoization and path tracking. Iterative to avoid
+        recursion limits.
         """
         # Memo: belief_id -> bool (well-founded or not)
         memo: dict[str, bool] = {}
         # Stack of (belief_id, state) where state=0 means "enter",
         # state=1 means "exit, compute from children".
         # We need post-order evaluation for AND-OR semantics.
-        visited: set[str] = set()
 
         # Initialize: seed the root frame with its first AND-set.
         # Note: we do NOT require the root belief to be active — this
@@ -1596,8 +1594,8 @@ class BeliefStore:
                         CASCADE_RETRACTED,
                         dependent.id,
                         dependent.proposition,
-                        f"lost all justifications but survives as a "
-                        f"ground observation",
+                        "lost all justifications but survives as a "
+                        "ground observation",
                         {"survived": True,
                          "lost_justification": lost_id,
                          "ground": True},
@@ -1725,8 +1723,8 @@ class BeliefStore:
                         "rederived_blocked",
                         b.id,
                         b.proposition,
-                        f"re-derivation blocked: contradicted by stronger "
-                        f"active belief",
+                        "re-derivation blocked: contradicted by stronger "
+                        "active belief",
                         {"premise": belief_id,
                          "n_contradictors": len(contradictors)},
                     )
@@ -1743,8 +1741,8 @@ class BeliefStore:
                         "rederived_blocked",
                         b.id,
                         b.proposition,
-                        f"re-derivation blocked: justifications doomed "
-                        f"if contradictors retracted",
+                        "re-derivation blocked: justifications doomed "
+                        "if contradictors retracted",
                         {"premise": belief_id,
                          "doomed": list(doomed)},
                     )
