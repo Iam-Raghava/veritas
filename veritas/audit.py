@@ -51,6 +51,11 @@ class AuditLog:
         self._events: list[AuditEvent] = []
         self._max_events = max_events
         self._dropped = 0
+        # Monotonic seq counter. Must NOT use len(self._events): when
+        # max_events drops old entries, len() stalls and seq numbers
+        # repeat (observed: 0,1,2,2,2). Persistence uses seq as a unique
+        # key; repeats risk silently discarding events.
+        self._next_seq = 0
 
     def record(
         self,
@@ -65,8 +70,15 @@ class AuditLog:
     ) -> AuditEvent:
         """Append an event. seq/timestamp overrides are for persistence
         restore only — normal callers must not pass them."""
+        if seq is None:
+            seq = self._next_seq
+            self._next_seq += 1
+        else:
+            # Persistence restore: keep the counter ahead of any
+            # explicitly assigned seq.
+            self._next_seq = max(self._next_seq, seq + 1)
         event = AuditEvent(
-            seq=len(self._events) if seq is None else seq,
+            seq=seq,
             timestamp=time.time() if timestamp is None else timestamp,
             event_type=event_type,
             belief_id=belief_id,
