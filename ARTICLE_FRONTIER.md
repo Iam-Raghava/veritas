@@ -84,7 +84,8 @@ store.assert_belief("Server is in us-east-1",
                     ground=True)
 
 # Derived belief (depends on the above)
-infra = store.get_belief_by_proposition("Server is in us-east-1")
+infra = next(b for b in store.active_beliefs()
+             if b.proposition == "Server is in us-east-1")
 store.assert_belief("Deploy to us-east-1",
                     justifications=[infra.id],
                     source="deploy-planner",
