@@ -144,6 +144,7 @@ FUNCTIONAL_RELATIONS = frozenset({
     "major",  # primary field of study
     "subscription", "plan", "tier", "status",  # service level (one at a time)
     "owner",  # primary owner
+    "manager", "lead",  # primary manager/lead (matches _SPLAIN regex)
     "target", "destination", "deployment target",  # single active target
 })
 
