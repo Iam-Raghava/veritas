@@ -42,7 +42,6 @@ import sqlite3
 import threading
 import time
 import urllib.request
-from typing import Any
 
 from .distributed import EventLog
 
@@ -67,6 +66,12 @@ class GossipEventLog(EventLog):
         PRIMARY KEY (lamport, node_id)
     );
     """
+
+    @property
+    def needs_rebuild_on_sync(self) -> bool:
+        # Positional ordering is not stable: new events can sort before
+        # old ones via (lamport, node_id). Rebuild instead of incremental.
+        return True
 
     def __init__(
         self,
