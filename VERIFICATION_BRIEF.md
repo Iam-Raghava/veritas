@@ -165,8 +165,7 @@ veritas/
 | `tests/test_readme.py` | Every README code block executes | 2/2 |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical in-process AND across PYTHONHASHSEED 0/1/42 AND a constructed 3-way exact-tie retraction | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every active belief has exactly one birth event; every retracted belief has a full lifecycle; every cascade names its lost justification; seq dense | pass |
-| `tests/test_differential.py` | 20 trials × 300 random ops vs an independent naive reference implementation: every accept/reject decision and final state identical | clean |
-| `tests/test_mutation.py` | 7 targeted mutants (tie rule, retraction order, pruning, cascade, rejection) | 7/7 killed |
+| `tests/test_differential.py` | 15 trials × 200 random ops vs an independent naive reference implementation: every accept/reject decision and final state identical | clean |
 | `tests/test_adversarial.py` | 14 cases: corrupt DBs, future/legacy schemas, 10k fan-out, self-contradicting detector, negative weights, clock skew, concurrent CLI, reentrant detector, snapshot isolation, deepcopy | 14/14 |
 | `tests/test_v03.py` | 12 tests: EE2/EE3 dominance, zombie prevention, ground survival, zombie-bridge, Hansson rejection, subscriptions | 12/12 |
 | `tests/test_v04.py` | 22 checks: circular bypass, well-foundedness, Horn AND/OR, EE2 best-proof, commutativity, 4 constraint tests | 22/22 |
