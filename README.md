@@ -296,7 +296,8 @@ v0.7.0 — semantic + async + temporal:
 - AsyncBeliefStore: asyncio API for modern agent frameworks.
 - Temporal reasoning: valid_from/valid_until; non-overlapping beliefs
   don't contradict.
-- Framework adapters: LangChain, CrewAI, AutoGen.
+- Framework helpers: CrewAI, AutoGen (standalone memory helpers, not
+  drop-in framework adapters).
 - Observability: Metrics with cache hit rates, latencies.
 - 7/7 property tests, 3/3 benchmarks. Mypy clean (16 files).
 
