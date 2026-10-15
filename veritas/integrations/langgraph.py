@@ -28,10 +28,11 @@ from ..store import BeliefStore
 class VeritasMemoryStore:
     """Veritas-backed key-value store for LangGraph.
 
-    Implements the LangGraph Store interface (put/get/search/delete)
+    Provides a LangGraph-like Store API (put/get/search/delete)
     with truth maintenance: putting a value that contradicts an
     existing value triggers entrenchment-ordered retraction rather
-    than silent overwrite.
+    than silent overwrite. NOTE: Not a subclass of
+    langgraph.store.base.BaseStore; does not implement batch/abatch.
 
     Namespace is a tuple (e.g., ("thread_1",)); key is a string.
     Values are dicts with at least a "proposition" key.
