@@ -218,11 +218,26 @@ class DistributedBeliefStore:
     def sync(self) -> int:
         """Replay all new log events. Returns number of events applied."""
         with self._lock:
+            # Gossip logs have non-stable positional ordering (new events
+            # can sort before old ones), so rebuild from scratch to
+            # guarantee convergence. Deterministic replay => same state.
+            if type(self.log).__name__ == "GossipEventLog":
+                return self._rebuild()
             events = self.log.read_since(self._seq)
             for seq, event in events:
                 self._apply(event)
                 self._seq = seq
             return len(events)
+
+    def _rebuild(self) -> int:
+        """Clear local state and replay the entire log. Used for gossip
+        logs where positional sequence numbers are not stable."""
+        self.store = BeliefStore()
+        events = self.log.read_since(0)
+        for seq, event in events:
+            self._apply(event)
+        self._seq = len(events)
+        return len(events)
 
     def _apply(self, event: dict) -> None:
         etype = event["event_type"]
