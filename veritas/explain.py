@@ -41,6 +41,13 @@ class Explainer:
             return f"Belief '{prop}' was not retracted."
         lines = [f"Belief '{prop}' was retracted."]
         lines.append(f"Reason: {ret.reason}")
+        # If the belief is currently ACTIVE (e.g., re-derived after
+        # retraction), say so — don't describe it as retracted.
+        if belief is not None and belief.is_active:
+            lines.append(
+                "Note: this belief is currently ACTIVE (it was re-derived "
+                "or re-asserted after the retraction above)."
+            )
         # Find what contradicted it (assertion events around the same time)
         # Look for contraction events mentioning this belief.
         # Use list membership, NOT substring matching (b1 vs b10 bug).
