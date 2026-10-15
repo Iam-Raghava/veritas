@@ -71,7 +71,8 @@ check("NLI detector drives store contraction", y is not None and not s2.get(x.id
 print("== NLI detector requires opt-in install ==")
 nli2 = HuggingFaceNLIDetector()
 try:
-    import transformers  # noqa
+    import transformers
+    assert transformers.__version__  # noqa: F841
     print("  (transformers installed; skipping import-error check)")
     PASS += 1
 except ImportError:
