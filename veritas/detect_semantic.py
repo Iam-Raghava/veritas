@@ -21,7 +21,7 @@ import re
 from collections import Counter
 
 from veritas.belief import Belief
-from veritas.detect import heuristic_contradiction
+from veritas.detect import Detector, heuristic_contradiction
 
 # Antonym pairs for semantic opposition (beyond not/X patterns).
 ANTONYMS = {
@@ -129,7 +129,7 @@ def _embedding_similarity(a: str, b: str) -> float | None:
         return None
 
 
-class SemanticDetector:
+class SemanticDetector(Detector):
     """Embedding-enhanced contradiction detector.
 
     Combines semantic similarity (embeddings or TF-IDF) with opposition
@@ -141,6 +141,10 @@ class SemanticDetector:
 
     def __init__(self, similarity_threshold: float = 0.5) -> None:
         self.threshold = similarity_threshold
+
+    def contradicts(self, a: Belief, b: Belief) -> bool:
+        """Detector protocol: True if a and b contradict."""
+        return self(a, b)
 
     def __call__(self, a: Belief | str, b: Belief | str) -> bool:
         pa = a.proposition if isinstance(a, Belief) else a
