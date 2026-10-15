@@ -27,6 +27,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 ## What's new
 
+- **v0.12.0 — Distributed**: `DistributedBeliefStore` shares one consistent belief state across machines via a shared event log. Event sourcing + deterministic replay = eventual convergence, no consensus protocol.
 - **v0.11.0 — Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
 - **v0.10.0 — Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
 - **v0.9.0 — LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
@@ -274,6 +275,11 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.12.0 — distributed belief sharing:
+- `DistributedBeliefStore(node_id, log)` + `SQLiteEventLog(path)` for
+  multi-machine truth maintenance. Writes append to a shared ordered
+  log; nodes replay to converge. Eventual consistency, deterministic.
 
 v0.11.0 — export formats:
 - `to_json`, `to_dot` (Graphviz), `to_graphml` (Gephi/Cytoscape) for
