@@ -5,7 +5,8 @@
 # docs presence. Exits non-zero on ANY failure.
 set -euo pipefail
 
-V=~/workspace/veritas
+# Use the script's directory (portable), not a hardcoded path.
+V="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$V"
 PASS=0; FAIL=0
 
