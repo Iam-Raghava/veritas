@@ -90,6 +90,7 @@ value is not the algorithm (1980s math) but:
 1. 27+ bugs already found and fixed via red-teaming
 2. Differential testing against a reference implementation
 3. Property-based tests, cascade verification, temporal correctness
-4. Production integrations (LangGraph, LlamaIndex)
+4. Framework helpers (CrewAI, AutoGen as standalone helpers; LangGraph /
+   LlamaIndex integrations are experimental and not drop-in adapters)
 
 You're buying 6 months of bug-hunting, not a secret algorithm.
