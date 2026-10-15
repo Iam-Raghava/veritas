@@ -1,10 +1,10 @@
 """Async wrapper for BeliefStore.
 
-Modern agent frameworks (LangChain, CrewAI, AutoGen) are asyncio-based.
-AsyncBeliefStore exposes the same API as BeliefStore but with async methods,
-running the thread-safe sync implementation in a thread pool via
-asyncio.to_thread. This is the standard pattern for wrapping sync I/O-bound
-or CPU-bound libraries (cf. asyncpg, httpx sync/async duality).
+Modern agent frameworks are asyncio-based. AsyncBeliefStore exposes the
+same API as BeliefStore but with async methods, running the thread-safe
+sync implementation in a thread pool via asyncio.to_thread. This is the
+standard pattern for wrapping sync I/O-bound or CPU-bound libraries
+(cf. asyncpg, httpx sync/async duality).
 
 Usage:
     store = AsyncBeliefStore()
