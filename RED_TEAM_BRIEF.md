@@ -1,5 +1,9 @@
 # Veritas — Technical Brief for Red-Teaming
 
+> **Historical snapshot.** This brief was written on 2026-10-10 for Veritas
+> v0.11.0. It is preserved as a record of that review. For the current
+> state, see [README.md](README.md) (v0.14.1 as of 2026-10-15).
+
 **Author:** RAGS · **Repo:** https://github.com/Iam-Raghava/veritas · **Version:** 0.11.0 · **License:** MIT
 **Date:** 2026-10-10 · **Purpose:** Complete technical disclosure for independent review by frontier LLMs. Includes known weaknesses — attack them.
 
