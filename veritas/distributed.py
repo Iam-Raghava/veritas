@@ -256,6 +256,15 @@ class DistributedBeliefStore:
                 _belief_id=payload["belief_id"],
             )
         elif etype == "retract":
+            # BFT: only the original author can explicitly retract.
+            # (Cross-node corrections use contradiction, not fiat.)
+            if type(self.log).__name__ == "ByzantineTolerantLog":
+                get_author = getattr(self.log, "get_belief_author", None)
+                if get_author:
+                    author = get_author(payload["belief_id"])
+                    signer = event.get("node_id", "")
+                    if author is None or author != signer:
+                        return  # Unauthorized retract: ignore.
             self.store.retract_belief(
                 payload["belief_id"],
                 reason=payload.get("reason", "manual retraction"),
