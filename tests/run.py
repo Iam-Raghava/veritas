@@ -158,8 +158,12 @@ s.assert_belief("Acme's CEO is John Doe",
                 source="press release", source_reliability=0.97, confidence=0.98)
 check("grounded dependent survives orphaning",
       s.get(dep.id).is_active)
-check("orphan lost the dead justification",
-      base.id not in s.get(dep.id).justifications)
+# Cascades are non-destructive: justifications are PRESERVED (for
+# re-derivation), even when a premise is dead. The dependent survives
+# via its ground flag, not by pruning.
+# (The old check was a false positive: "x" not in [["x"]] is True.)
+check("orphan retains justifications (non-destructive cascade)",
+      any(base.id in jset for jset in s.get(dep.id).justifications))
 
 print("== propagation: ungrounded orphan retracts (zombie prevention) ==")
 s = fresh_store()
