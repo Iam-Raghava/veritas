@@ -73,7 +73,7 @@ if python3 tests/test_round4_regressions.py > /tmp/vt12b.log 2>&1 && grep -q "34
   ok "round-4 regression suite 34/34"
 else bad "round-4 regression suite"; tail -3 /tmp/vt12b.log; fi
 # Invariant suites (previously omitted from gate).
-for t in test_doomed_simulation test_properties test_borrowed_entrenchment; do
+for t in test_doomed_simulation test_properties test_borrowed_entrenchment test_benchmarks; do
   if [ -f "tests/${t}.py" ]; then
     if python3 "tests/${t}.py" > /tmp/vt_${t}.log 2>&1; then
       ok "invariant suite: ${t}"
