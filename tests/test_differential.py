@@ -62,11 +62,20 @@ class ReferenceStore:
             bb = belief_map.get(bid)
             if bb is None:
                 continue
-            ns = len(bb.justifications)
+            # Filter to VALID AND-sets (all premises active).
+            # Mirrors the Bug 1 fix in veritas/store.py.
+            valid_sets = [
+                js for js in bb.justifications
+                if js and all(
+                    (pp := self.beliefs.get(pid)) is not None and pp.is_active
+                    for pid in js
+                )
+            ]
+            ns = len(valid_sets)
             sc = _e(bb, W, n_justifications=ns)
-            if bb.justifications:
+            if valid_sets:
                 best = float("-inf")
-                for js in bb.justifications:
+                for js in valid_sets:
                     sm = float("inf")
                     for pid in js:
                         if pid in capped:
@@ -179,36 +188,36 @@ class ReferenceStore:
     def _has_ground_path(self, belief_id: str) -> bool:
         """Well-foundedness check (mirrors Veritas AND-OR semantics).
 
-        A belief is well-founded iff it is ground, or there EXISTS an
-        AND-set where EVERY premise is well-founded (recursive).
+        Bottom-up Horn-clause marking (fixed point). Mirrors the Bug 2
+        fix in veritas/store.py — cycle-safe by construction.
         """
-        memo: dict[str, bool] = {}
-
-        def _wf(bid: str, path: frozenset[str]) -> bool:
-            if bid in memo:
-                return memo[bid]
-            if bid in path:
-                return False  # cycle
-            b = self.beliefs.get(bid)
-            if b is None or not b.is_active:
-                memo[bid] = False
-                return False
-            if b.ground:
-                memo[bid] = True
-                return True
-            if not b.justifications:
-                memo[bid] = False
-                return False
-            # OR across AND-sets: any fully-well-founded set suffices.
-            new_path = path | {bid}
-            for jset in b.justifications:
-                if all(_wf(pid, new_path) for pid in jset):
-                    memo[bid] = True
-                    return True
-            memo[bid] = False
+        b0 = self.beliefs.get(belief_id)
+        if b0 is None:
             return False
-
-        return _wf(belief_id, frozenset())
+        if b0.ground:
+            return True
+        if not b0.justifications:
+            return False
+        marked: set[str] = {
+            bid for bid, b in self.beliefs.items()
+            if b.is_active and b.ground
+        }
+        changed = True
+        while changed:
+            changed = False
+            for bid, b in self.beliefs.items():
+                if bid in marked:
+                    continue
+                if bid != belief_id and not b.is_active:
+                    continue
+                if not b.justifications:
+                    continue
+                for jset in b.justifications:
+                    if jset and all(pid in marked for pid in jset):
+                        marked.add(bid)
+                        changed = True
+                        break
+        return belief_id in marked
 
     def _retract(self, bid):
         b = self.beliefs.get(bid)
