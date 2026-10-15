@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 ASSERTED = "asserted"
 RETRACTED = "retracted"
 CASCADE_RETRACTED = "cascade_retracted"
+# Distinct event for beliefs that SURVIVED a cascade (had an alternative
+# valid justification). Never label a survival as "cascade_retracted" —
+# that breaks TimeTravel.when_retracted, Explainer.why_retracted, and
+# audit proofs that count retractions.
+CASCADE_SURVIVED = "cascade_survived"
 REJECTED = "rejected"
 CONSTRAINT_ERROR = "constraint_error"
 
