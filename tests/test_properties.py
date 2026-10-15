@@ -46,7 +46,7 @@ def test_monotonicity():
     """More independent justifications => higher or equal entrenchment."""
     s = BeliefStore()
     p1 = s.assert_belief("P1", source="x", source_reliability=0.7, ground=True)
-    p2 = s.assert_belief("P2", source="x", source_reliability=0.7, ground=True)
+    s.assert_belief("P2", source="x", source_reliability=0.7, ground=True)
     # Single justification
     d1 = s.assert_belief("D", source="x", source_reliability=0.5,
                          justifications=[[p1.id]])
