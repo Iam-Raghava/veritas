@@ -293,7 +293,6 @@ v0.8.0 — explanations + policies + calibration:
   `summary()` — "why did my agent forget X?" has an answer.
 - Contraction policies: `entrenchment` (default), `conservative`.
 - `CalibrationTracker`: confidence-vs-survival calibration curves.
-- Scale validated: 100k beliefs at 15k/sec, sub-millisecond queries.
 
 v0.7.0 — semantic + async + temporal:
 - SemanticDetector: embedding-based contradiction detection (antonyms,
