@@ -919,6 +919,7 @@ class BeliefStore:
         ground: bool = False,
         valid_from: float | None = None,
         valid_until: float | None = None,
+        _belief_id: str | None = None,
     ) -> Belief | None:
         """Assert a new belief, contracting contradictors if necessary.
 
@@ -971,6 +972,7 @@ class BeliefStore:
             ground=ground,
             valid_from=valid_from,
             valid_until=valid_until,
+            **({"id": _belief_id} if _belief_id else {}),
         )
         new_ent = self.entrenchment_of(new)
 
