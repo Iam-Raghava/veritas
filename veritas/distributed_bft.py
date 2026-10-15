@@ -205,8 +205,36 @@ class ByzantineTolerantLog(GossipEventLog):
             )
         finally:
             conn.close()
-        self._gossip_one(lamport, event)
+        self._gossip_one(lamport, event, signature.hex())
         return lamport
+
+    def _gossip_one(self, lamport: int, event: dict,
+                    signature_hex: str | None = None) -> None:
+        """Gossip with signature (BFT mode). Overrides parent to include
+        the Ed25519 signature — peers reject unsigned events."""
+        if signature_hex is None:
+            # Fallback: should not happen in BFT mode, but don't send
+            # unsigned if we can avoid it.
+            return
+        import urllib.request
+        for peer in self.peers:
+            try:
+                data = json.dumps({
+                    "lamport": lamport,
+                    "node_id": self.node_id,
+                    "event_type": event.get("event_type", ""),
+                    "payload": event.get("payload", {}),
+                    "signature": signature_hex,
+                }).encode()
+                req = urllib.request.Request(
+                    peer.rstrip("/") + "/events",
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=5.0)
+            except Exception:
+                pass  # Peer unreachable — it'll catch up via exchange().
 
     def receive_signed(
         self,
@@ -267,7 +295,43 @@ class ByzantineTolerantLog(GossipEventLog):
                 return False, "equivocation detected, node blacklisted"
             return False, "duplicate"  # Same event, already have it.
 
-        # 4. Accept.
+        # 4. Validate lamport (prevent clock poisoning).
+        # A malicious node could send lamport=2**60 to poison every
+        # honest node's Lamport clock via _observe(). Bound the jump.
+        MAX_LAMPORT_JUMP = 10000
+        with self._lock:
+            local_lamport = self._lamport
+        if lamport > local_lamport + MAX_LAMPORT_JUMP:
+            self._blacklist(
+                node_id, "lamport_poisoning",
+                json.dumps({"lamport": lamport,
+                            "local": local_lamport}))
+            return False, "lamport jump too large, node blacklisted"
+
+        # 5. Validate payload (prevent entrenchment max-out).
+        # A malicious node with valid keys could assert
+        # source_reliability=1.0/confidence=1.0/timestamp=future to make
+        # its beliefs unbeatable. Clamp to valid ranges; absurd timestamps
+        # are rejected. (Note: this does not prevent a malicious node from
+        # asserting high-but-valid reliability — that's a trust-model
+        # limitation, not a code bug. See module docstring.)
+        if event_type == "assert":
+            rel = payload.get("source_reliability", 0.5)
+            conf = payload.get("confidence", 0.8)
+            ts = payload.get("timestamp", 0)
+            if not (0.0 <= rel <= 1.0) or not (0.0 <= conf <= 1.0):
+                return False, "reliability/confidence out of range"
+            # Timestamp must not be more than 1 hour in the future.
+            if ts and ts > time.time() + 3600:
+                return False, "timestamp too far in future"
+            # Clamp remote reliability: a remote node cannot claim perfect
+            # 1.0 reliability. This prevents unbeatable malicious beliefs.
+            # (Local assertions can still use 1.0.)
+            if rel >= 1.0:
+                payload = dict(payload)
+                payload["source_reliability"] = 0.95
+
+        # 6. Accept.
         self._observe(lamport)
         conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
         try:
