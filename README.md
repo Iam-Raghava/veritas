@@ -162,7 +162,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_ordering.py` | 6 entrenchment-ordering proofs + 200 randomized decision-rule trials | 6/6 pass |
 | `tests/test_robust.py` | 10 API-misuse/detector-contract/CLI-fuzz cases | 10/10 pass |
 | `tests/test_readme.py` | Every README code block runs | 3/3 pass |
-| `tests/test_readme_sync.py` | README version/exports/test-files/changelog match code | 58/58 pass |
+| `tests/test_readme_sync.py` | README version/exports/test-files/changelog match code | 68/68 pass |
 | `tests/test_realistic_trajectory.py` | 30-day support agent: subscription, outage, stale cache, GDPR | pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
@@ -172,7 +172,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
 | `tests/test_properties.py` | 7 mathematical invariant proofs | 7/7 pass |
 | `tests/test_benchmarks.py` | 3 head-to-head vs naive baselines | 3/3 pass |
-| `tests/verify_e2e.sh` | 33 end-to-end checks (package, CLI, deployment, publish-clean) | 33/33 pass |
+| `tests/verify_e2e.sh` | 38 end-to-end checks (package, CLI, deployment, publish-clean) | 38/38 pass |
 
 The fuzzer and edge cases found and fixed 4 real bugs: dead
 justifications accepted at assert time, duplicate justifications leaving
