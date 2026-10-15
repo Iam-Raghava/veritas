@@ -34,7 +34,7 @@ def test_rederivation_blocked_by_contradiction():
     assert not s.get(bob.id).is_active
     # Retract and re-assert premise. Bob must NOT come back.
     s.retract_belief(p.id)
-    p2 = s.assert_belief("Premise", source="x",
+    s.assert_belief("Premise", source="x",
                          source_reliability=0.9, ground=True)
     assert not s.get(bob.id).is_active, \
         "Bob resurrected despite Jane contradiction!"
@@ -62,7 +62,7 @@ def test_transactional_constraint_rollback():
     s.add_constraint("mutual_exclusion", _check)
     # Newcomer contradicts incumbent AND violates constraint.
     # Make newcomer weaker so it's rejected.
-    new = s.assert_belief("Server is stopped", source="b",
+    s.assert_belief("Server is stopped", source="b",
                           source_reliability=0.5, ground=True)
     # Newcomer should be rejected (weaker + constraint).
     # Incumbent must survive.
@@ -131,7 +131,7 @@ def test_assert_batch_topological():
 def test_storage_backend():
     """Persistence backend protocol works."""
     s = BeliefStore()
-    b = s.assert_belief("Backend test", source="x", ground=True)
+    s.assert_belief("Backend test", source="x", ground=True)
     # SQLite via get_backend.
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
