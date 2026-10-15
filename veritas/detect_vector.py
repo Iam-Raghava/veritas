@@ -138,6 +138,9 @@ class VectorPrefilterDetector:
 
     def contradicts(self, a: Belief, b: Belief) -> bool:
         """Delegate to base detector (for pairwise checks)."""
+        # Temporal filter for consistency with find_contradictors.
+        if not a.temporally_overlaps(b):
+            return False
         return self.base.contradicts(a, b)
 
     def find_contradictors(
@@ -146,5 +149,9 @@ class VectorPrefilterDetector:
         """Find contradictors using vector pre-filter."""
         if candidates is None:
             candidates = self._candidates(belief)
+        # Temporal filter: the base detector does not check validity
+        # intervals; without this, non-overlapping claims (e.g., "was CEO
+        # in 2020" vs "is CEO in 2026") would be flagged as contradictions.
         return [c for c in candidates
-                if self.base.contradicts(belief, c)]
+                if belief.temporally_overlaps(c)
+                and self.base.contradicts(belief, c)]
