@@ -1,18 +1,16 @@
 """Persistence backend abstraction for Veritas.
 
-Supports multiple storage engines behind a common interface:
+Currently backed by a single storage engine behind a common interface:
 - SQLiteBackend (default): single-file, zero-config. Good for
   single-agent deployments.
-- PostgresBackend: horizontally scalable, for multi-agent enterprise
-  deployments. Requires `psycopg` (pip install psycopg[binary]) and a
-  PostgreSQL server.
+
+(PostgresBackend was removed in v0.11.0: never tested against a real
+server, destructive multi-writer behavior.)
 
 Usage:
     from veritas.persist_backend import get_backend
 
     backend = get_backend("sqlite:///path/to/db.sqlite")
-    # or
-    backend = get_backend("postgresql://user:pass@host/db")
 
     backend.save(store)
     store2 = backend.load()
