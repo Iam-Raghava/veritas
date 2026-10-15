@@ -8,12 +8,37 @@ do "latest wins".
 """
 from __future__ import annotations
 
+import copy
 import time
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 
 ACTIVE = "active"
 RETRACTED = "retracted"
+
+# Deterministic replay clock. When set (via fixed_now), Belief.age_days
+# uses this instead of wall-clock time. Distributed nodes set it to the
+# max event timestamp during log replay so identical event logs produce
+# identical entrenchment scores regardless of when the replay runs.
+_now_override: ContextVar[float | None] = ContextVar(
+    "_now_override", default=None)
+
+
+@contextmanager
+def fixed_now(timestamp: float):
+    """Fix the clock for deterministic entrenchment scoring.
+
+    Usage:
+        with fixed_now(max_event_ts):
+            store.sync()  # all scoring uses max_event_ts as "now"
+    """
+    token = _now_override.set(timestamp)
+    try:
+        yield
+    finally:
+        _now_override.reset(token)
 
 
 def _new_id() -> str:
@@ -131,14 +156,20 @@ class Belief:
 
         Two beliefs can only contradict if they make claims about
         overlapping time periods.
+
+        Intervals are half-open [from, until): the `until` endpoint is
+        exclusive. Adjacent intervals [0, 10) and [10, 20) do NOT overlap
+        — this matches temporal-database convention (SQL:2011) and avoids
+        false contradictions at handoff boundaries (e.g., "CEO until 2024"
+        vs "CEO from 2024").
         """
-        # [a_from, a_until] overlaps [b_from, b_until] iff
-        # a_from <= b_until and b_from <= a_until (None = infinity).
+        # [a_from, a_until) overlaps [b_from, b_until) iff
+        # a_from < b_until and b_from < a_until (None = infinity).
         a_from = self.valid_from if self.valid_from is not None else float("-inf")
         a_until = self.valid_until if self.valid_until is not None else float("inf")
         b_from = other.valid_from if other.valid_from is not None else float("-inf")
         b_until = other.valid_until if other.valid_until is not None else float("inf")
-        return a_from <= b_until and b_from <= a_until
+        return a_from < b_until and b_from < a_until
 
     @property
     def all_premise_ids(self) -> list[str]:
@@ -153,7 +184,14 @@ class Belief:
     @property
     def age_days(self) -> float:
         ts = self.timestamp if self.timestamp is not None else time.time()
-        return max(0.0, (time.time() - ts) / 86400.0)
+        # Deterministic replay: distributed nodes can fix "now" to the max
+        # event timestamp so identical logs produce identical scores
+        # regardless of when the replay happens (wall-clock recency decay
+        # is non-linear, so relative ordering can flip over time).
+        now = _now_override.get()
+        if now is None:
+            now = time.time()
+        return max(0.0, (now - ts) / 86400.0)
 
     def snapshot(self) -> "Belief":
         """Independent copy. Mutating it cannot affect the store.
@@ -188,7 +226,7 @@ class Belief:
             "justifications": [list(s) for s in self.justifications],
             "timestamp": self.timestamp,
             "status": self.status,
-            "metadata": dict(self.metadata),
+            "metadata": copy.deepcopy(self.metadata),
             "ground": self.ground,
             "valid_from": self.valid_from,
             "valid_until": self.valid_until,
@@ -201,11 +239,11 @@ class Belief:
             confidence=d.get("confidence", 0.8),
             source=d.get("source", "unknown"),
             source_reliability=d.get("source_reliability", 0.5),
-            justifications=d.get("justifications", []),
+            justifications=copy.deepcopy(d.get("justifications", [])),
             id=d.get("id", _new_id()),
             timestamp=d.get("timestamp", time.time()),
             status=d.get("status", ACTIVE),
-            metadata=d.get("metadata", {}),
+            metadata=copy.deepcopy(d.get("metadata", {})),
             ground=d.get("ground", False),
             valid_from=d.get("valid_from"),
             valid_until=d.get("valid_until"),
