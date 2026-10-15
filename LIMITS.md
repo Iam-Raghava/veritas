@@ -82,11 +82,14 @@ theoretically grounded. Tune them for your domain:
 - **Not real-time.** Assertion latency is microseconds for heuristic,
   milliseconds for NLI. Fine for agent loops, not for HFT.
 - **Not Byzantine fault tolerant.** Distributed mode (GossipEventLog)
-  assumes cooperating nodes. A malicious node writing garbage events
-  would corrupt all replicas. BFT (PBFT/HotStuff) needs 3f+1 nodes and
-  3-phase voting per write — a 10x complexity jump for a threat model
-  that doesn't match cooperating agents. If you need BFT, Veritas
-  is the wrong tool.
+  assumes cooperating nodes. For adversarial settings, v0.14.0 adds
+  `ByzantineTolerantLog`: Ed25519-signed events, equivocation detection
+  with blacklisting, author-only retraction. Honest nodes converge
+  despite malicious nodes. This is NOT full PBFT — no 3-phase voting,
+  no 3f+1 node requirement, eventual (not real-time) convergence. For
+  the agent-memory threat model (malicious agents poisoning shared
+  memory), this is the right tradeoff. For cryptocurrency-grade BFT,
+  Veritas is the wrong tool.
 
 ## The "Build vs Buy" Question
 
