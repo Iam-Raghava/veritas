@@ -153,7 +153,6 @@ def test_rejected_audit_names_doomed_prune():
     so the decision is explainable after the fact."""
     s = BeliefStore()
     q = make_q(s)
-    p_id = None
     before = len(s.audit)
     p = s.assert_belief(
         "Acme's CEO is John",
