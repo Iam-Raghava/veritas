@@ -113,9 +113,12 @@ infrastructure that made a class of bugs impossible. Agent memory is at
 the pre-GC stage: every long-lived agent is accumulating stale beliefs,
 and the field's answer is "latest wins and hope."
 
-Veritas is v0.11.0 today: core TMS engine, SQLite persistence,
-claim extraction, vector-gated contradiction detection, experimental
-LangGraph/LlamaIndex helpers, batch assertion API, 100+ tests passing.
+Veritas is v0.14.1 today: core TMS engine, SQLite persistence,
+claim extraction, NLI/hybrid/LLM contradiction detection, distributed
+belief sharing (event-sourced), P2P gossip replication, Byzantine-tolerant
+mode with Ed25519 signatures, 100+ tests passing.
+
+Install: `pip install veritas-tms` · Repo: https://github.com/Iam-Raghava/veritas
 MIT licensed. The code is at the link below — try the demo, break it, tell
 me what's wrong with it. That's how infrastructure gets good.
 
