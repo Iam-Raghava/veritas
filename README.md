@@ -166,7 +166,7 @@ Tested like infrastructure, not a demo:
 | `tests/test_realistic_trajectory.py` | 30-day support agent: subscription, outage, stale cache, GDPR | pass |
 | `tests/test_determinism.py` | Frozen-time replay byte-identical across hash seeds | pass |
 | `tests/test_audit_proof.py` | Audit completeness: every state change causally logged | pass |
-| `tests/test_differential.py` | 20 trials × 300 ops vs naive reference implementation: every decision and final state identical | clean |
+| `tests/test_differential.py` | 15 trials × 200 ops vs naive reference implementation: every decision and final state identical | clean |
 | `tests/test_adversarial.py` | 14 adversarial cases: corrupt DBs, future/legacy schemas, 10k fan-out cascade, hostile detectors, clock skew, concurrent CLI, unserializable metadata, snapshot isolation, deepcopy | 14/14 pass |
 | `tests/test_v03.py` | 12 formal rigor tests (EE2/EE3, zombie prevention, Hansson) | 12/12 pass |
 | `tests/test_v04.py` | 22 well-foundedness/Horn/constraint tests | 22/22 pass |
