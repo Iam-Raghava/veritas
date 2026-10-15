@@ -21,6 +21,7 @@ from .detect_semantic import SemanticDetector
 from .detect_llm import LLMJudgeDetector
 from .detect_hybrid import HybridDetector
 from .timetravel import TimeTravel
+from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
 from .export import to_json, to_dot, to_graphml
 from .entrenchment import (
     corroboration_score,
@@ -49,7 +50,7 @@ from .explain import Explainer
 from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
-__version__ = "0.11.1"
+__version__ = "0.12.0"
 
 __all__ = [
     "Belief",
@@ -71,6 +72,9 @@ __all__ = [
     "SemanticDetector",
     "LLMJudgeDetector",
     "TimeTravel",
+    "DistributedBeliefStore",
+    "SQLiteEventLog",
+    "EventLog",
     "to_json",
     "to_dot",
     "to_graphml",
