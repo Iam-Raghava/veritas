@@ -3,6 +3,12 @@
 Wraps document insertion so updated document chunks automatically
 retract outdated ones based on document metadata timestamps.
 
+NOTE: This is a standalone helper that accepts plain dicts
+({"doc_id", "text", "timestamp"}). It is NOT a subclass of
+llama_index BaseDocumentStore and does not accept Document/BaseNode
+objects. Use it directly for truth-maintained document state
+alongside LlamaIndex.
+
 When a document with the same doc_id is re-inserted with a newer
 timestamp, the old chunks are retracted (superseded) rather than
 duplicated.
