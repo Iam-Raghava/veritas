@@ -4,12 +4,16 @@ Provides a Veritas-backed store for LangGraph state graphs that
 truth-maintains cross-thread state: when new information contradicts
 stored state, Veritas retracts the weaker side instead of overwriting.
 
+NOTE: This is a standalone helper with a LangGraph-like put/get/search/
+delete API. It is NOT a subclass of langgraph.store.base.BaseStore and
+does not implement batch/abatch — do not pass it as store= to a real
+StateGraph.compile(). Use it directly for truth-maintained key-value
+state alongside LangGraph.
+
 Usage:
     from veritas.integrations.langgraph import VeritasMemoryStore
 
     store = VeritasMemoryStore()
-    # Use as a LangGraph Store (if langgraph is installed)
-    # or directly:
     store.put(("thread_1",), "ceo", {"proposition": "Acme's CEO is Jane"})
     item = store.get(("thread_1",), "ceo")
 """
