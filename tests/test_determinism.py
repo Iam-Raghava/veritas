@@ -181,8 +181,8 @@ def main():
         f"tie retraction order varied by hash seed: {orders}"
     assert orders[0] == '["id-000000", "id-000001", "id-000002"]', \
         f"tie order not ID-sorted: {orders[0]}"
-    print(f"TIE-TORTURE DETERMINISTIC: 3-way exact tie retracts in ID "
-          f"order on all seeds")
+    print("TIE-TORTURE DETERMINISTIC: 3-way exact tie retracts in ID "
+          "order on all seeds")
 
     # Part 4: proposition-digest tie-break. Identical entrenchment AND
     # identical timestamps — the digest is the only tie-breaker. This is
@@ -199,8 +199,8 @@ def main():
         dorders.append(p.stdout.strip())
     assert len(set(dorders)) == 1, \
         f"digest tie-break varied by hash seed: {dorders}"
-    print(f"DIGEST-TIE DETERMINISTIC: identical order across "
-          f"PYTHONHASHSEED 0/1/42/99/12345")
+    print("DIGEST-TIE DETERMINISTIC: identical order across "
+          "PYTHONHASHSEED 0/1/42/99/12345")
 
 
 if __name__ == "__main__":
