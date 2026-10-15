@@ -22,7 +22,7 @@ urls = { Homepage = "https://github.com/Iam-Raghava/veritas" }
 [project.optional-dependencies]
 nli = ["transformers>=4.40", "torch>=2.0"]
 semantic = ["sentence-transformers>=2.2.0"]
-vector = ["numpy>=1.24", "onnxruntime>=1.16"]
+vector = ["numpy>=1.24", "onnxruntime>=1.16", "tokenizers>=0.13"]
 bft = ["cryptography>=41.0"]
 all = [
     "transformers>=4.40",
@@ -30,6 +30,8 @@ all = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24",
     "onnxruntime>=1.16",
+    "tokenizers>=0.13",
+    "cryptography>=41.0",
 ]
 
 [project.scripts]
