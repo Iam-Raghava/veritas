@@ -235,24 +235,33 @@ class ByzantineTolerantLog(GossipEventLog):
             return False, "bad signature"
 
         # 3. Check for equivocation: same (lamport, node_id), different content.
+        # Content = (event_type, payload). A malicious node that signs
+        # "assert" and "retract" with the same lamport+payload is
+        # equivocating, not duplicating — the event_type differs.
         conn = sqlite3.connect(self.path, timeout=10.0)
         try:
             row = conn.execute(
-                "SELECT payload FROM gossip_events WHERE lamport = ? AND node_id = ?",
+                "SELECT event_type, payload FROM gossip_events "
+                "WHERE lamport = ? AND node_id = ?",
                 (lamport, node_id),
             ).fetchone()
         finally:
             conn.close()
         if row:
-            existing = json.loads(row[0])
-            existing_payload = existing.get("payload", existing)
-            if existing_payload != payload:
+            existing_type, existing_payload_json = row[0], row[1]
+            existing_payload = json.loads(existing_payload_json)
+            # Unwrap if stored as {"payload": ...}
+            if isinstance(existing_payload, dict) and "payload" in existing_payload:
+                existing_payload = existing_payload["payload"]
+            if existing_type != event_type or existing_payload != payload:
                 # EQUIVOCATION: cryptographic proof of malice.
                 evidence = json.dumps({
                     "lamport": lamport,
                     "node_id": node_id,
-                    "event_a": existing_payload,
-                    "event_b": payload,
+                    "event_a": {"event_type": existing_type,
+                                "payload": existing_payload},
+                    "event_b": {"event_type": event_type,
+                                "payload": payload},
                 })
                 self._blacklist(node_id, "equivocation", evidence)
                 return False, "equivocation detected, node blacklisted"
