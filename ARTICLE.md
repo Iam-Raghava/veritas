@@ -113,9 +113,9 @@ infrastructure that made a class of bugs impossible. Agent memory is at
 the pre-GC stage: every long-lived agent is accumulating stale beliefs,
 and the field's answer is "latest wins and hope."
 
-Veritas is v0.11.0 today: core TMS engine, SQLite/PostgreSQL persistence,
-claim extraction, vector-gated contradiction detection, LangGraph/LlamaIndex
-integrations, batch assertion API, 100+ tests passing.
+Veritas is v0.11.0 today: core TMS engine, SQLite persistence,
+claim extraction, vector-gated contradiction detection, experimental
+LangGraph/LlamaIndex helpers, batch assertion API, 100+ tests passing.
 MIT licensed. The code is at the link below — try the demo, break it, tell
 me what's wrong with it. That's how infrastructure gets good.
 
