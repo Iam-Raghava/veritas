@@ -35,6 +35,11 @@ belief validity, async API, standalone memory helpers (CrewAI/AutoGen), explanat
 engine ("why did my agent forget X?"), 7 mathematical property tests, and
 head-to-head benchmarks vs naive latest-wins baselines.
 
+v0.12.0–v0.14.1: distributed belief sharing across machines (event-sourced),
+P2P gossip replication (no single point of failure, partition-tolerant),
+and Byzantine-tolerant mode (Ed25519-signed events, equivocation detection,
+author-only retraction). `pip install "veritas-tms[bft]"`.
+
 Verified hard: 40 core tests, 14 adversarial cases (corrupt DBs, 10k fan-out
 cascades, hostile detectors, clock skew), differential testing vs a naive
 reference implementation (every decision identical), property-based fuzzing
