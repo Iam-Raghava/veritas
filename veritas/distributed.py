@@ -8,13 +8,17 @@ The solution: event sourcing. Veritas's state is fully determined by
 the ordered sequence of assert/retract events (this is what TimeTravel
 proves — replay the audit log, get the same state). If all nodes
 replay the same ordered event log, they converge to identical state.
-No consensus protocol, no CRDT merge functions, no vector clocks.
 
 Architecture:
     EventLog (abstract): ordered, append-only, shared by all nodes.
     SQLiteEventLog: the log is a SQLite table. Works across processes
-        on one machine, and across machines via a network filesystem
-        or a shared database server. Zero new dependencies.
+        on one machine, and across machines via a network filesystem.
+        Zero new dependencies. Single point of failure (the file).
+    GossipEventLog (distributed_gossip.py): P2P replication, no SPOF,
+        partition-tolerant. Each node has its own SQLite file; events
+        replicate via gossip with Lamport timestamps.
+    ByzantineTolerantLog (distributed_bft.py): Gossip + Ed25519
+        signatures, equivocation detection, author-only retraction.
     DistributedBeliefStore: wraps BeliefStore. Writes append to the
         log; reads come from the local store (instant). sync() pulls
         new events and replays them through the deterministic engine.
@@ -24,13 +28,11 @@ log. All nodes that have replayed the same log prefix have identical
 state — guaranteed by determinism, not by luck.
 
 What this does NOT do:
-    - Byzantine fault tolerance (assumes non-malicious nodes).
     - Strong consistency (there is a sync lag; use sync() before
       reads that must be fresh).
-    - Partition healing beyond log merge (if the network splits and
-      two nodes append concurrently, the log order decides; the
-      loser’s contradictors are retracted on replay — deterministic,
-      but a human should review).
+    - Real-time total order across partitions (eventual convergence;
+      see GossipEventLog for the partition story).
+    - Full PBFT (see ByzantineTolerantLog for the honest scope).
 
 Usage:
     log = SQLiteEventLog("/shared/veritas_log.db")
@@ -49,7 +51,6 @@ import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any
 
 from .belief import Belief
 from .store import BeliefStore
@@ -71,6 +72,16 @@ class EventLog(ABC):
     def read_since(self, seq: int) -> list[tuple[int, dict]]:
         """All (seq, event) with seq > given. Ordered by seq."""
         ...
+
+    @property
+    def needs_rebuild_on_sync(self) -> bool:
+        """True if positional seq numbers are not stable (gossip logs).
+
+        Gossip logs order by (lamport, node_id); new events can sort
+        before old ones, so incremental replay by position is wrong.
+        Rebuild from scratch instead (deterministic => same result).
+        """
+        return False
 
 
 class SQLiteEventLog(EventLog):
@@ -218,10 +229,10 @@ class DistributedBeliefStore:
     def sync(self) -> int:
         """Replay all new log events. Returns number of events applied."""
         with self._lock:
-            # Gossip logs have non-stable positional ordering (new events
-            # can sort before old ones), so rebuild from scratch to
-            # guarantee convergence. Deterministic replay => same state.
-            if type(self.log).__name__ == "GossipEventLog":
+            # Gossip logs have non-stable positional ordering, so rebuild
+            # from scratch to guarantee convergence. Deterministic replay
+            # => same state.
+            if self.log.needs_rebuild_on_sync:
                 return self._rebuild()
             events = self.log.read_since(self._seq)
             for seq, event in events:
@@ -258,13 +269,12 @@ class DistributedBeliefStore:
         elif etype == "retract":
             # BFT: only the original author can explicitly retract.
             # (Cross-node corrections use contradiction, not fiat.)
-            if type(self.log).__name__ == "ByzantineTolerantLog":
-                get_author = getattr(self.log, "get_belief_author", None)
-                if get_author:
-                    author = get_author(payload["belief_id"])
-                    signer = event.get("node_id", "")
-                    if author is None or author != signer:
-                        return  # Unauthorized retract: ignore.
+            get_author = getattr(self.log, "get_belief_author", None)
+            if get_author is not None:
+                author = get_author(payload["belief_id"])
+                signer = event.get("node_id", "")
+                if author is None or author != signer:
+                    return  # Unauthorized retract: ignore.
             self.store.retract_belief(
                 payload["belief_id"],
                 reason=payload.get("reason", "manual retraction"),
