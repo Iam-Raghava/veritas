@@ -38,6 +38,7 @@ from typing import Any, Callable
 from .audit import (
     ASSERTED,
     CASCADE_RETRACTED,
+    CASCADE_SURVIVED,
     CONSTRAINT_ERROR,
     REJECTED,
     RETRACTED,
@@ -174,8 +175,13 @@ class BeliefStore:
     def _bump_metric(self, name: str, amount: int = 1) -> None:
         """Increment a Metrics counter if a collector is attached."""
         if self.metrics is not None:
-            setattr(self.metrics, name,
-                    getattr(self.metrics, name, 0) + amount)
+            # Use the thread-safe incr() method, not direct setattr.
+            incr = getattr(self.metrics, "incr", None)
+            if callable(incr):
+                incr(name, amount)
+            else:
+                setattr(self.metrics, name,
+                        getattr(self.metrics, name, 0) + amount)
 
     @property
     def generation(self) -> int:
@@ -321,19 +327,31 @@ class BeliefStore:
             b = belief_map.get(bid)
             if b is None:
                 continue
-            n_sets = len(b.justifications)
+            # Filter to VALID AND-sets first: an AND-set is valid only if
+            # EVERY premise is active. Dead sets (with retracted premises)
+            # must not count toward corroboration nor contribute to the
+            # EE2 cap. (Non-destructive cascades leave dead premises in
+            # justifications; scoring must ignore them.)
+            valid_sets = [
+                jset for jset in b.justifications
+                if jset and all(
+                    (p := self._beliefs.get(pid)) is not None and p.is_active
+                    for pid in jset
+                )
+            ]
+            n_sets = len(valid_sets)
             score = entrenchment(
                 b, self.entrenchment_weights, n_justifications=n_sets)
-            if b.justifications:
+            if valid_sets:
                 best_set_strength = float("-inf")
-                for jset in b.justifications:
+                for jset in valid_sets:
                     set_min = float("inf")
                     for pid in jset:
                         if pid in capped:
                             set_min = min(set_min, capped[pid])
                         else:
-                            # Premise not in order (inactive/missing):
-                            # use raw as fallback.
+                            # Premise active but not in order (should not
+                            # happen for valid sets): use raw as fallback.
                             p = self._beliefs.get(pid)
                             if p is not None and p.is_active:
                                 set_min = min(set_min, entrenchment(
@@ -701,7 +719,7 @@ class BeliefStore:
             return result
 
     def _simulate_with_contra_retracted(
-        self, newcomer: Belief, contra_ids: set[str]
+        self, newcomer: Belief, contra_ids: set[str], newcomer_ent: float
     ) -> set[str] | None:
         """Simulate: add newcomer, retract contradictors, check constraints.
 
@@ -711,6 +729,16 @@ class BeliefStore:
 
         This is used BEFORE the actual contradiction retraction to ensure
         transactional semantics across the contradiction+constraint pipeline.
+
+        newcomer_ent MUST be the EE2-capped entrenchment_of(newcomer) as
+        computed by the caller — the same valuation the post-retraction
+        enforcement (_simulate_constraint_contraction, via
+        _enforce_constraints_locked) will use. Using the raw uncapped
+        entrenchment() here once let the simulation predict "newcomer
+        survives" (raw > incumbents) while the real run rejected it
+        (capped < incumbents) — after the contradictors were already
+        retracted. A rejected assertion must leave existing information
+        untouched.
         """
         # Hypothetical active set: current active - contradictors + newcomer.
         # (Newcomer not yet in _beliefs, so we handle it specially.)
@@ -719,19 +747,13 @@ class BeliefStore:
             if b.is_active and bid not in contra_ids
         }
         # For entrenchment ordering, we need values for all in sim_active
-        # plus the newcomer. Use current state (unmutated).
+        # plus the newcomer. Incumbents use current (unmutated) capped
+        # values; the newcomer uses the caller-supplied capped value so
+        # the simulation agrees with the real enforcement pass.
         ent: dict[str, float] = {}
         for bid in sim_active:
             ent[bid] = self.entrenchment_of(self._beliefs[bid])
-        # Newcomer entrenchment (not in store yet, compute directly).
-        # We need to approximate; use the passed new_ent from caller.
-        # Actually, we'll compute it via a temporary approach: the caller
-        # should have computed new_ent already. For simplicity, we use
-        # a high value to ensure newcomer is not chosen as weakest unless
-        # constraints force it. Better: compute via entrenchment_of on a
-        # mock. Simpler: skip newcomer from ent dict; constraints that
-        # target newcomer will be caught by ID matching.
-        
+        ent[newcomer.id] = newcomer_ent
         # Simulate constraint check on hypothetical state.
         # We need snapshots; for newcomer, use its snapshot.
         def _check_on(hypo_active: set[str], include_newcomer: bool):
@@ -775,14 +797,10 @@ class BeliefStore:
                 viol_ids.update(vids)
             if not viol_ids:
                 break
-            # Find weakest by entrenchment. For newcomer, compute on the fly.
+            # Find weakest by entrenchment. The newcomer is valued with the
+            # caller-supplied EE2-capped entrenchment (same valuation the
+            # real post-retraction enforcement uses).
             def _ent_for(bid: str) -> float:
-                if bid == newcomer.id:
-                    # Compute newcomer entrenchment (not in store).
-                    from .entrenchment import entrenchment
-                    return entrenchment(
-                        newcomer, self.entrenchment_weights,
-                        n_justifications=len(newcomer.justifications))
                 return ent.get(bid, float('inf'))
             weakest = min(viol_ids, key=lambda bid: (_ent_for(bid), bid))
             to_retract.add(weakest)
@@ -918,6 +936,10 @@ class BeliefStore:
 
         # Phase 2: perform retractions for real (newcomer survives).
         # Retract in deterministic weakest-first order for audit clarity.
+        # Use the newcomer's timestamp for historical consistency.
+        newcomer_ts = None
+        if newcomer_id is not None and newcomer_id in self._beliefs:
+            newcomer_ts = self._beliefs[newcomer_id].timestamp
         ordered = sorted(
             to_retract,
             key=lambda bid: (self.entrenchment_of(self._beliefs[bid]), bid),
@@ -929,6 +951,7 @@ class BeliefStore:
                     bid,
                     "constraint violation",
                     cascade=True,
+                    timestamp=newcomer_ts,
                 ))
         return retracted
 
@@ -1185,7 +1208,11 @@ class BeliefStore:
         # This preserves Hansson's postulate: rejected input leaves the
         # belief base invariant.
         contra_ids = {b.id for b in contradictors}
-        sim_result = self._simulate_with_contra_retracted(new, contra_ids)
+        # new_ent is the EE2-capped entrenchment_of(new) after all
+        # justification pruning — the same valuation the real
+        # post-retraction enforcement will use for the newcomer.
+        sim_result = self._simulate_with_contra_retracted(
+            new, contra_ids, new_ent)
         if sim_result is None:
             # Newcomer would not survive constraints; reject without
             # touching contradictors.
@@ -1211,6 +1238,7 @@ class BeliefStore:
                     f"(new entrenchment {new_ent:.3f} > "
                     f"{self.entrenchment_of(old):.3f})",
                     cascade=True,
+                    timestamp=new.timestamp,
                 )
             )
 
@@ -1425,20 +1453,15 @@ class BeliefStore:
         (recursive). This is AND-OR semantics, not OR-reachability:
         P1∧P2⇒C requires BOTH P1 and P2 to be grounded, not just one.
 
-        Cycle-safe via memoization and path tracking. Iterative to avoid
-        recursion limits.
+        Computed bottom-up via standard Horn-clause marking (fixed-point
+        iteration). This is cycle-safe by construction: a belief is marked
+        well-founded only when all premises of one of its AND-sets are
+        already marked. Cycle-dependent memoization bugs are impossible.
         """
-        # Memo: belief_id -> bool (well-founded or not)
-        memo: dict[str, bool] = {}
-        # Stack of (belief_id, state) where state=0 means "enter",
-        # state=1 means "exit, compute from children".
-        # We need post-order evaluation for AND-OR semantics.
-
-        # Initialize: seed the root frame with its first AND-set.
         # Note: we do NOT require the root belief to be active — this
         # allows evaluating whether a RETRACTED belief would be
         # well-founded if re-activated (for TMS re-derivation).
-        # Premises must still be active (checked during traversal).
+        # Premises must still be active.
         b0 = self._beliefs.get(belief_id)
         if b0 is None:
             return False
@@ -1447,118 +1470,36 @@ class BeliefStore:
         if not b0.justifications:
             return False
 
-        def _is_well_founded(bid: str) -> bool:
-            # Iterative post-order traversal with explicit stack.
-            # Each frame: (belief_id, jset_idx, pending_premises, and_ok).
-            if bid in memo:
-                return memo[bid]
-            # Seed root with first AND-set's premises.
-            root_b = self._beliefs.get(bid)
-            assert root_b is not None and root_b.justifications
-            stack: list[tuple[str, int, list[str], bool]] = [
-                (bid, 0, list(root_b.justifications[0]), True)
-            ]
-            # Track the path for cycle detection.
-            path: set[str] = {bid}
-
-            while stack:
-                cur_id, jset_idx, pending, and_ok = stack[-1]
-                b = self._beliefs.get(cur_id)
-
-                # Base cases.
-                # Note: the ROOT belief (bid) is exempt from the active
-                # check — we're evaluating whether it WOULD be well-founded
-                # if active (for re-derivation). Premises must be active.
-                is_root = (cur_id == bid)
-                if b is None or (not b.is_active and not is_root):
-                    memo[cur_id] = False
-                    stack.pop()
-                    path.discard(cur_id)
-                    # Propagate to parent.
-                    if stack:
-                        p_id, p_jset, p_pend, p_and = stack[-1]
-                        # Current premise failed → this AND-set fails.
-                        stack[-1] = (p_id, p_jset, p_pend, False)
+        # Bottom-up marking: start with active ground beliefs, iteratively
+        # add any belief with a fully-marked AND-set, until fixed point.
+        marked: set[str] = {
+            bid for bid, b in self._beliefs.items()
+            if b.is_active and b.ground
+        }
+        # The root is exempt from the active check (see above), but its
+        # premises must be active and marked.
+        changed = True
+        while changed:
+            changed = False
+            for bid, b in self._beliefs.items():
+                if bid in marked:
                     continue
-                if b.ground:
-                    memo[cur_id] = True
-                    stack.pop()
-                    path.discard(cur_id)
+                # Root exempt from active check; others must be active.
+                if bid != belief_id and not b.is_active:
                     continue
                 if not b.justifications:
-                    memo[cur_id] = False
-                    stack.pop()
-                    path.discard(cur_id)
-                    if stack:
-                        p_id, p_jset, p_pend, p_and = stack[-1]
-                        stack[-1] = (p_id, p_jset, p_pend, False)
                     continue
+                for jset in b.justifications:
+                    if jset and all(pid in marked for pid in jset):
+                        marked.add(bid)
+                        changed = True
+                        break
+        return belief_id in marked
 
-                # If we have pending premises to check, process the next one.
-                if pending:
-                    nxt = pending[0]
-                    rest = pending[1:]
-                    stack[-1] = (cur_id, jset_idx, rest, and_ok)
-                    if nxt in memo:
-                        if not memo[nxt]:
-                            stack[-1] = (cur_id, jset_idx, rest, False)
-                    elif nxt in path:
-                        # Cycle: treat as failure for this path.
-                        stack[-1] = (cur_id, jset_idx, rest, False)
-                    else:
-                        path.add(nxt)
-                        nxt_b = self._beliefs.get(nxt)
-                        if (nxt_b is None or not nxt_b.is_active
-                                or not nxt_b.justifications):
-                            # Base case: handled on next iteration, but
-                            # seed empty so the base-case branch triggers.
-                            # Actually push with a marker: empty pending
-                            # + jset_idx=-1 means "evaluate base case".
-                            stack.append((nxt, -1, [], True))
-                        elif nxt_b.ground:
-                            stack.append((nxt, -1, [], True))
-                        else:
-                            stack.append(
-                                (nxt, 0, list(nxt_b.justifications[0]), True))
-                    continue
-
-                # No pending premises: evaluate current AND-set.
-                # and_ok is True iff all premises so far were well-founded.
-                if and_ok:
-                    # Found a fully-grounded AND-set → well-founded!
-                    memo[cur_id] = True
-                    stack.pop()
-                    path.discard(cur_id)
-                    continue
-                # Current AND-set failed; try next AND-set (OR across sets).
-                if jset_idx + 1 < len(b.justifications):
-                    nxt_set = b.justifications[jset_idx + 1]
-                    stack[-1] = (cur_id, jset_idx + 1, list(nxt_set), True)
-                    continue
-                # All AND-sets failed → not well-founded.
-                memo[cur_id] = False
-                stack.pop()
-                path.discard(cur_id)
-                if stack:
-                    p_id, p_jset, p_pend, p_and = stack[-1]
-                    stack[-1] = (p_id, p_jset, p_pend, False)
-
-            return memo.get(bid, False)
-
-        # Initialize: the root belief does NOT need to be active — we're
-        # evaluating whether it WOULD be well-founded if active (for
-        # TMS re-derivation). Premises must be active (checked in traversal).
-        b0 = self._beliefs.get(belief_id)
-        if b0 is None:
-            return False
-        if b0.ground:
-            return True
-        if not b0.justifications:
-            return False
-        return _is_well_founded(belief_id)
 
     def _retract_single(
-        self, belief_id: str, reason: str, cascade: bool
+        self, belief_id: str, reason: str, cascade: bool,
+        timestamp: float | None = None,
     ) -> list[Belief]:
         belief = self._beliefs.get(belief_id)
         if belief is None or not belief.is_active:
@@ -1574,6 +1515,7 @@ class BeliefStore:
             belief.proposition,
             reason,
             {"entrenchment": self.entrenchment_of(belief)},
+            timestamp=timestamp,
         )
         self._fire_subscribers(belief.id, RETRACTED)
         if cascade:
@@ -1603,14 +1545,14 @@ class BeliefStore:
                     # loops (A<->B with no ground) from sustaining each other.
                     if self._has_ground_path_locked(dependent.id):
                         self._audit.record(
-                            CASCADE_RETRACTED,
+                            CASCADE_SURVIVED,
                             dependent.id,
                             dependent.proposition,
                             f"lost justification '{lost_id}' but retains "
                             f"valid proof via remaining justifications; "
                             f"survives (structure preserved)",
-                            {"survived": True,
-                             "lost_justification": lost_id},
+                            {"lost_justification": lost_id},
+                            timestamp=timestamp,
                         )
                         continue
                     # Has justifications but no valid proof: circular or
@@ -1623,14 +1565,14 @@ class BeliefStore:
                 # statement); otherwise it must retract.
                 if dependent.ground:
                     self._audit.record(
-                        CASCADE_RETRACTED,
+                        CASCADE_SURVIVED,
                         dependent.id,
                         dependent.proposition,
                         "lost all justifications but survives as a "
                         "ground observation",
-                        {"survived": True,
-                         "lost_justification": lost_id,
+                        {"lost_justification": lost_id,
                          "ground": True},
+                        timestamp=timestamp,
                     )
                     continue
 
@@ -1657,6 +1599,7 @@ class BeliefStore:
                         "survived": False,
                         "lost_justification": lost_id,
                     },
+                    timestamp=timestamp,
                 )
                 self._fire_subscribers(dependent.id, CASCADE_RETRACTED)
                 for sub in self._dependents_of_locked(dependent.id):
