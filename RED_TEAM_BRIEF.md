@@ -93,9 +93,7 @@ costs); everything else competition-specific is gone.
 **E2E gate** (`tests/verify_e2e.sh`): **38/38 green.** Covers package integrity, all unit suites, CLI, persistence, deployment, publish-clean.
 
 **Test suites:**
-- Core: 40/40. Adversarial: 14/14. Differential (vs reference implementation): clean. Properties, mutation (7/7 mutants killed), determinism (frozen-time replay byte-identical), README doctest (3/3), README sync (58/58 — version/exports/test-files/changelog match code).
-- `test_release_gate.py` (13/13): load (2000 adds @ 6000/s, 200 searches @ 40/s), soak (memory bounded), chaos (corrupt/empty DB raise cleanly, SQL injection neutralized), API contract validation.
-- `test_hybrid_retrieval.py` (12/12): CJK tokenizer, hybrid dense+TF-IDF, RRF.
+- Core: 40/40. Adversarial: 14/14. Differential (vs reference implementation): clean. Properties, determinism (frozen-time replay byte-identical), README doctest (3/3), README sync (68/68 — version/exports/test-files/changelog match code).
 - `test_aml_service.py`: governance + temporal as_of behavior.
 
 **Stress testing (to failure):**
