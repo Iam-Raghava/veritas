@@ -32,18 +32,24 @@ def contradiction_storm(seed, n_facts=50):
     (entrenchment beats recency). Latest-wins keeps whoever wrote last.
     """
     rng = random.Random(seed)
+    # Generate the workload ONCE, then replay identically for each system.
+    # (Using one shared rng across systems gives each system different
+    # random values — an unfair comparison.)
+    workload = []
+    for i in range(n_facts):
+        key = f"fact{i:02d}"
+        vals = [f"Person{rng.randint(0, 99999):05d}" for _ in range(4)]
+        truth_val = vals[0]
+        writes = [(vals[0], 0.9), (vals[1], 0.3),
+                  (vals[2], 0.6), (vals[3], 0.3)]
+        rng.shuffle(writes)
+        workload.append((key, truth_val, writes))
     results = {}
     for sys in _systems():
         correct = 0
         ts = [0.0]
-        for i in range(n_facts):
-            key = f"fact{i:02d}"
-            vals = [f"Person{rng.randint(0, 99999):05d}" for _ in range(4)]
-            truth_val = vals[0]
-            # (value, reliability); shuffle arrival order
-            writes = [(vals[0], 0.9), (vals[1], 0.3),
-                      (vals[2], 0.6), (vals[3], 0.3)]
-            rng.shuffle(writes)
+        for key, truth_val, writes in workload:
+            i = int(key[4:])
             for v, rel in writes:
                 ts[0] += 1.0
                 prop = f"Company{i:02d}'s CEO is {v}"
