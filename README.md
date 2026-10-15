@@ -30,8 +30,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 - **v0.11.0 — Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
 - **v0.10.0 — Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
 - **v0.9.0 — LLM-as-judge**: Use Claude 5.5, GPT-6, or Gemini 4 as the contradiction detector. The LLM judges, Veritas still decides.
-- **Earlier**: Explanations (`why_retracted()` answers "why did my agent forget X?"), SQLite persistence, CLI, async API, framework wrappers, metrics, n-ary constraints, Horn-clause justifications.
-- **Scale**: 100k beliefs at 15k/sec, sub-millisecond queries.
+- **Earlier**: Explanations (`why_retracted()` answers "why did my agent forget X?"), SQLite persistence, CLI, async API, standalone memory helpers, metrics, n-ary constraints, Horn-clause justifications.
 
 ## How it works
 
@@ -113,6 +112,12 @@ Veritas treats memory as a **belief base** — a set of propositions that must s
 - **Model-agnostic** — operates at the memory layer, not the model layer. Swap Claude for GPT for Gemini; Veritas doesn't care. Your agent's memory survives model upgrades.
 - **Temporal sanity** — "was online" (past) doesn't contradict "is offline" (now). Beliefs carry validity intervals; only overlapping intervals can conflict.
 - **Auditable compliance** — time-travel reconstructs what the agent believed at any timestamp. Prove what was known when a decision was made.
+
+## Installation
+
+```bash
+pip install veritas-tms
+```
 
 ## Quick start
 
