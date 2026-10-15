@@ -42,7 +42,9 @@ Veritas provides a principled, automatic, fully-audited layer:
 8. **Temporal reasoning** — beliefs carry `valid_from`/`valid_until`;
    non-overlapping intervals don't contradict.
 9. **Async API** — `AsyncBeliefStore` for asyncio-based agent frameworks.
-10. **Framework adapters** — drop-in memory for LangChain, CrewAI, AutoGen.
+10. **Framework helpers** — standalone memory helpers for CrewAI,
+   AutoGen (not drop-in adapters); LangGraph/LlamaIndex helpers are
+   experimental and not real adapters. (LangChain integration removed.)
 
 ---
 
