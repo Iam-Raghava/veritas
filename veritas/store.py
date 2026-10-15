@@ -30,6 +30,7 @@ proportional to the number of *candidate* contradictors, not store size.
 """
 from __future__ import annotations
 
+import copy
 import functools
 import threading
 from typing import Any, Callable
@@ -92,6 +93,12 @@ class BeliefStore:
             raise ValueError(f"policy must be one of {POLICIES}")
         self._beliefs: dict[str, Belief] = {}
         self._audit = AuditLog()
+        # Unique store identity: used by persist.save() to detect when a
+        # DIFFERENT store is saved to an existing database path. Without
+        # this, the append-only audit table (keyed by seq) would silently
+        # drop the new store's audit events due to seq collisions.
+        import uuid
+        self._store_id: str = str(uuid.uuid4())
         # Observability: optional Metrics collector (veritas.observability).
         self.metrics = metrics
         # Contraction policy: entrenchment (default) or conservative.
@@ -209,6 +216,11 @@ class BeliefStore:
             # Newer attributes (v0.7+): copy policy, share metrics.
             new.policy = self.policy
             new.metrics = self.metrics
+            # Store identity: a deep copy is the same logical store.
+            new._store_id = self._store_id
+            # Bulk-loading flag: must be copied (defaults to False in
+            # __init__, but __deepcopy__ bypasses __init__).
+            new._bulk_loading = self._bulk_loading
         new._lock = threading.RLock()
         return new
 
@@ -733,7 +745,16 @@ class BeliefStore:
             for name, check in self._constraints.items():
                 try:
                     violated = check(snaps)
-                except Exception:
+                except Exception as exc:
+                    # Audited, not silent (matches check_constraints policy).
+                    self._audit.record(
+                        CONSTRAINT_ERROR,
+                        "",
+                        "",
+                        f"constraint '{name}' raised {type(exc).__name__}: {exc}",
+                        {"constraint": name,
+                         "error": f"{type(exc).__name__}: {exc}"},
+                    )
                     continue
                 if violated:
                     # Filter to hypo_active
@@ -815,7 +836,16 @@ class BeliefStore:
             for name, check in self._constraints.items():
                 try:
                     violated = check(snapshots)
-                except Exception:
+                except Exception as exc:
+                    # Audited, not silent (matches check_constraints policy).
+                    self._audit.record(
+                        CONSTRAINT_ERROR,
+                        "",
+                        "",
+                        f"constraint '{name}' raised {type(exc).__name__}: {exc}",
+                        {"constraint": name,
+                         "error": f"{type(exc).__name__}: {exc}"},
+                    )
                     continue  # broken constraint: skip, don't block
                 if violated:
                     result[name] = [v for v in violated if v in sim_active]
@@ -967,7 +997,7 @@ class BeliefStore:
             source=source,
             source_reliability=source_reliability,
             justifications=valid_justs,
-            metadata=dict(metadata or {}),
+            metadata=copy.deepcopy(metadata) if metadata else {},
             timestamp=timestamp,  # None -> Belief defaults to now; 0.0 stays 0.0
             ground=ground,
             valid_from=valid_from,
