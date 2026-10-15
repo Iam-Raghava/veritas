@@ -14,10 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from veritas import BeliefStore  # noqa: E402
 from veritas.detect import heuristic_contradiction  # noqa: E402
-from veritas.entrenchment import (  # noqa: E402
-    entrenchment, independent_entrenchment)
 from veritas.belief import Belief  # noqa: E402
-from veritas.store import DEFAULT_SURVIVAL_THRESHOLD  # noqa: E402
 
 # No recency: wall-clock time must not affect the comparison.
 from veritas.entrenchment import DEFAULT_WEIGHTS
