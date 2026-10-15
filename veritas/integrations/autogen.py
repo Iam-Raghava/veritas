@@ -1,13 +1,15 @@
 """AutoGen integration for Veritas.
 
-Provides Veritas truth maintenance for AutoGen multi-agent conversations.
-When agents disagree, Veritas resolves by entrenchment rather than
-letting contradictions accumulate in the chat history.
+Standalone memory helper with Veritas truth maintenance for
+multi-agent conversations. When agents disagree, Veritas resolves by
+entrenchment rather than letting contradictions accumulate.
+
+NOTE: This is a standalone helper, not an AutoGen framework adapter.
+Use it directly alongside your AutoGen conversations.
 
 Usage:
     from veritas.integrations.autogen import VeritasChatMemory
     memory = VeritasChatMemory()
-    # Hook into your AutoGen conversation
 """
 
 from __future__ import annotations
