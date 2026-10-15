@@ -31,19 +31,18 @@ Gemini 4 as the contradiction detector via any OpenAI-compatible API —
 the LLM judges, Veritas still decides), TimeTravel (reconstruct what the
 agent believed at any timestamp via audit replay), export to JSON /
 Graphviz DOT / GraphML. Also: semantic contradiction detection, temporal
-belief validity, async API, LangChain/CrewAI/AutoGen adapters, explanation
+belief validity, async API, standalone memory helpers (CrewAI/AutoGen), explanation
 engine ("why did my agent forget X?"), 7 mathematical property tests, and
 head-to-head benchmarks vs naive latest-wins baselines.
 
 Verified hard: 40 core tests, 14 adversarial cases (corrupt DBs, 10k fan-out
 cascades, hostile detectors, clock skew), differential testing vs a naive
 reference implementation (every decision identical), property-based fuzzing
-(17k+ ops), mutation testing (7/7 mutants killed), 33/33 end-to-end gate.
+(17k+ ops), mutation testing (7/7 mutants killed), 38/38 end-to-end gate.
 The test process caught real bugs, including a cache staleness issue that
 would have caused wrong retraction decisions in production.
 
-MIT. Pip-installable from the repo via `pyproject.toml` (`veritas-tms`
-is the planned PyPI name).
+MIT. `pip install veritas-tms` (live on PyPI since 2026-10-15).
 
 Prior-art survey included in docs/ — I checked the landscape carefully in
 Oct 2026 and the full closed loop (detect → entrenchment-ordered retract →
