@@ -113,7 +113,7 @@ def test_zombie_bridge_blocked():
     # The key check: B must be doomed, so N's entrenchment must NOT
     # include corroboration from B.
     from veritas.entrenchment import entrenchment
-    n_ent_with_b = entrenchment(s._beliefs[n.id] if n else None,
+    entrenchment(s._beliefs[n.id] if n else None,
                                 s.entrenchment_weights) if n else 0
     # If N was accepted, verify B was doomed (retracted or pruned).
     if n is not None:
