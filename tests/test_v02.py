@@ -166,4 +166,5 @@ w2 = s.assert_belief("Acme will not launch in June", source="s", source_reliabil
 check("higher reliability wins", w2 is not None and not s.get(w1.id).is_active)
 
 print(f"\n{PASS} passed, {FAIL} failed")
-sys.exit(1 if FAIL else 0)
+if __name__ == "__main__":
+    sys.exit(1 if FAIL else 0)
