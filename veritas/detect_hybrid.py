@@ -26,7 +26,12 @@ from __future__ import annotations
 from typing import Any
 
 from .belief import Belief
-from .detect import Detector, functional_parts, heuristic_contradiction
+from .detect import (
+    Detector,
+    FUNCTIONAL_RELATIONS,
+    functional_parts,
+    heuristic_contradiction,
+)
 
 
 class HybridDetector(Detector):
@@ -47,18 +52,18 @@ class HybridDetector(Detector):
 
     def contradicts(self, a: Belief, b: Belief) -> bool:
         # Layer 1: heuristic (fast, transparent)
-        # If both parse as functional with SAME relation, we have a
-        # definitive answer. If relations differ (e.g., "ceo" vs
-        # "chief executive officer"), heuristic returns False but we
-        # MUST still try NLI — the paraphrase might be a contradiction.
+        # If both parse as functional with the SAME whitelisted relation,
+        # the heuristic is definitive. If the relation is NOT in the
+        # whitelist (e.g., "deadline"), the heuristic returns False but
+        # we MUST still try NLI — it might be a real contradiction.
         pa = functional_parts(a.proposition)
         pb = functional_parts(b.proposition)
         if pa is not None and pb is not None:
-            if pa[1] == pb[1]:
-                # Same relation: heuristic is definitive.
+            if pa[1] == pb[1] and pa[1].lower() in FUNCTIONAL_RELATIONS:
+                # Same whitelisted relation: heuristic is definitive.
                 return heuristic_contradiction(a, b)
-            # Different relation names: fall through to NLI.
-            # (e.g., "ceo" vs "chief executive officer")
+            # Different relations, or non-whitelisted relation:
+            # fall through to NLI.
 
         # Layer 2: NLI fallback for unparsable or paraphrased pairs.
         # Fail-open to heuristic (not to "no contradiction") when NLI
@@ -78,7 +83,10 @@ class HybridDetector(Detector):
         for prem, hyp in [(p1, p2), (p2, p1)]:
             try:
                 result = pipe(f"{prem} </s> {hyp}")
-                # result is list of {label, score} dicts
+                # Unwrap nested list (transformers>=4.40 returns
+                # [[{label, score}, ...]] for single strings).
+                if result and isinstance(result[0], list):
+                    result = result[0]
                 for r in result:
                     label = r.get("label", "").upper()
                     score = r.get("score", 0.0)
