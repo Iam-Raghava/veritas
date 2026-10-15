@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from veritas import Belief, BeliefStore  # noqa: E402
+from veritas import BeliefStore  # noqa: E402
 
 PASS = []
 FAIL = []
