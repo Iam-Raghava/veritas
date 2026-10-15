@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritas-tms"
-version = "0.13.0"
+version = "0.14.0"
 description = "Truth maintenance for AI agents: automated principled belief retraction"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,7 @@ urls = { Homepage = "https://github.com/Iam-Raghava/veritas" }
 nli = ["transformers>=4.40", "torch>=2.0"]
 semantic = ["sentence-transformers>=2.2.0"]
 vector = ["numpy>=1.24", "onnxruntime>=1.16"]
+bft = ["cryptography>=41.0"]
 all = [
     "transformers>=4.40",
     "torch>=2.0",
