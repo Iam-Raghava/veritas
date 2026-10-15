@@ -76,4 +76,5 @@ gate = os.path.join(ROOT, "tests", "verify_e2e.sh")
 check("verify_e2e.sh exists", os.path.exists(gate))
 
 print(f"\n{passed} passed, {failed} failed")
-sys.exit(1 if failed else 0)
+if __name__ == "__main__":
+    sys.exit(1 if failed else 0)
