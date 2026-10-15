@@ -99,11 +99,17 @@ class VectorPrefilterDetector:
             return [b for b in self._store.active_beliefs()
                     if b.id != belief.id]
         import numpy as np
-        # Check cache generation.
-        gen = self._store._ent_gen
-        if gen != self._cache_gen:
-            self._emb_cache.clear()
-            self._cache_gen = gen
+        # Evict retracted beliefs from cache (embeddings are immutable
+        # per belief ID — proposition text never changes — so we only
+        # need to drop IDs that are no longer active, not wipe the
+        # entire cache on every write).
+        if self._store is not None:
+            active_ids = {b.id for b in self._store.active_beliefs()}
+            # Also keep the query belief's own ID out (it's excluded below).
+            stale = [bid for bid in self._emb_cache if bid not in active_ids]
+            for bid in stale:
+                del self._emb_cache[bid]
+        self._cache_gen = self._store._ent_gen if self._store else -1
         # Embed query.
         q_emb = embedder.embed([belief.proposition])[0]
         # Embed candidates (cached).
