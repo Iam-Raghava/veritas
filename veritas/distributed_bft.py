@@ -38,7 +38,6 @@ cryptocurrency." A PhD researcher should evaluate it on those terms.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import threading
@@ -48,7 +47,6 @@ from typing import Any
 try:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
-        Ed25519PublicKey,
     )
     from cryptography.hazmat.primitives import serialization
     _CRYPTO_AVAILABLE = True
