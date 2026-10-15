@@ -1,5 +1,9 @@
 # Veritas — Verification Brief
 
+> **Historical snapshot.** This brief was written on 2026-10-09 for Veritas
+> v0.7.0. It is preserved as a record of that verification. For the current
+> state, see [README.md](README.md) (v0.14.1 as of 2026-10-15).
+
 **For independent verification by frontier AI models.**
 Date: 2026-10-09. Version: v0.7.0. Location: `~/workspace/veritas`.
 
