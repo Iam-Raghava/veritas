@@ -22,6 +22,7 @@ from .detect_llm import LLMJudgeDetector
 from .detect_hybrid import HybridDetector
 from .timetravel import TimeTravel
 from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
+from .distributed_gossip import GossipEventLog
 from .export import to_json, to_dot, to_graphml
 from .entrenchment import (
     corroboration_score,
@@ -50,7 +51,7 @@ from .explain import Explainer
 from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 __all__ = [
     "Belief",
@@ -75,6 +76,7 @@ __all__ = [
     "DistributedBeliefStore",
     "SQLiteEventLog",
     "EventLog",
+    "GossipEventLog",
     "to_json",
     "to_dot",
     "to_graphml",
