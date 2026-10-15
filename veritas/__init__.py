@@ -25,19 +25,20 @@ from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
 from .distributed_gossip import GossipEventLog
 from .export import to_json, to_dot, to_graphml
 
-# BFT is optional (requires cryptography). Lazy via __getattr__ (PEP 562)
-# so the import doesn't fail when cryptography is missing.
-_BFT_AVAILABLE = False
-try:
-    import veritas.distributed_bft as _bft_module
-    _BFT_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    _bft_module = None  # type: ignore[assignment]
-
-
+# BFT is optional (requires cryptography). Truly lazy via __getattr__
+# (PEP 562): the import happens on first access, not at module load.
+# This way `import veritas` never fails when cryptography is missing.
 def __getattr__(name: str):  # type: ignore[no-redef]
-    if name == "ByzantineTolerantLog" and _bft_module is not None:
-        return _bft_module.ByzantineTolerantLog
+    if name == "ByzantineTolerantLog":
+        try:
+            from . import distributed_bft as _bft_module
+            return _bft_module.ByzantineTolerantLog
+        except ImportError as exc:
+            raise AttributeError(
+                "ByzantineTolerantLog requires 'cryptography': "
+                "pip install veritas-tms[bft]"
+            ) from exc
+    raise AttributeError(f"module 'veritas' has no attribute {name!r}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 from .entrenchment import (
     corroboration_score,
@@ -117,7 +118,8 @@ __all__ = [
     "PersistenceBackend",
     "SQLiteBackend",
     "get_backend",
+    # ByzantineTolerantLog is available via lazy __getattr__ (PEP 562);
+    # listed here for discoverability (import fails with a clear message
+    # if cryptography is not installed).
+    "ByzantineTolerantLog",
 ]
-
-if _BFT_AVAILABLE:
-    __all__.append("ByzantineTolerantLog")
