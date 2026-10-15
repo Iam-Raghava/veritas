@@ -248,7 +248,7 @@ def test_snapshot_isolation():
     """Mutating returned beliefs must not corrupt the store."""
     s = BeliefStore()
     a = s.assert_belief("Acme's CEO is Alice", source="x", source_reliability=0.9)
-    b = s.assert_belief("Alice founded Acme", source="x", source_reliability=0.5,
+    s.assert_belief("Alice founded Acme", source="x", source_reliability=0.5,
                         justifications=[a.id])
     # Attack every public query method.
     s.get(a.id).proposition = "HACKED"
