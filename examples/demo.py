@@ -16,7 +16,6 @@ Run: python3 examples/demo.py
 """
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -52,7 +51,7 @@ def main():
         confidence=0.7, source="derived", source_reliability=0.4,
         justifications=[ceo.id],
     )
-    strategy = store.assert_belief(
+    store.assert_belief(
         "Acme's strategy follows Jane Smith's vision",
         confidence=0.6, source="derived", source_reliability=0.4,
         justifications=[founder.id],
