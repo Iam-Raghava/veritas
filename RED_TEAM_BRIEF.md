@@ -73,7 +73,7 @@ SQLite backend. Round-trips: beliefs, audit log, config, **policy** (fixed — c
 - `veritas/async_store.py`: AsyncBeliefStore. Has `stats()` wrapper (added in audit).
 - `veritas/cli.py`: Full CLI (init/assert/retract/list/contradictions/audit/stats).
 - `veritas/observability.py`: Metrics — assertions, rejections, retractions, cascades, contradictions, constraint violations, cache hits/misses. **Mostly unwired before audit; now instrumented.**
-- `veritas/integrations/`: langchain, autogen, crewai adapters.
+- `veritas/integrations/`: standalone memory helpers (autogen, crewai); experimental langgraph/llamaindex helpers. (LangChain removed.)
 
 ---
 
