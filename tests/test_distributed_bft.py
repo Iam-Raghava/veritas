@@ -1,8 +1,6 @@
 """Tests for veritas.distributed_bft: Byzantine-tolerant gossip."""
 
-import json
 import os
-import sqlite3
 import tempfile
 
 import pytest
@@ -12,8 +10,9 @@ from veritas.distributed_bft import ByzantineTolerantLog, _canonical
 
 try:
     import cryptography
-    CRYPTO = True
+    CRYPTO = cryptography.__name__ == "cryptography"
 except ImportError:
+    CRYPTO = False
     CRYPTO = False
 
 pytestmark = pytest.mark.skipif(not CRYPTO, reason="cryptography not installed")
