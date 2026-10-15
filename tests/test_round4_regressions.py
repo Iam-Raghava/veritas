@@ -263,7 +263,7 @@ def test_why_retracted_ignores_survivors():
     survived_events = [
         e
         for e in s.audit
-        if e.event_type == "cascade_retracted" and e.details.get("survived")
+        if e.event_type == "cascade_survived"
     ]
     check("survived cascade event exists", len(survived_events) >= 1)
     text = Explainer(s).why_retracted(g.id)
