@@ -1,13 +1,15 @@
 """CrewAI integration for Veritas.
 
-Wraps CrewAI agent memory with Veritas truth maintenance.
+Standalone memory helper with Veritas truth maintenance.
 Every tool result and agent output is asserted as a belief;
 contradictions trigger automatic entrenchment-ordered contraction.
+
+NOTE: This is a standalone helper, not a CrewAI framework adapter.
+Use it directly alongside your CrewAI agents.
 
 Usage:
     from veritas.integrations.crewai import VeritasCrewMemory
     memory = VeritasCrewMemory()
-    # Pass to your CrewAI agent config
 """
 
 from __future__ import annotations
