@@ -52,7 +52,7 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 
-from .belief import Belief
+from .belief import Belief, fixed_now
 from .store import BeliefStore
 
 
@@ -235,18 +235,34 @@ class DistributedBeliefStore:
             if self.log.needs_rebuild_on_sync:
                 return self._rebuild()
             events = self.log.read_since(self._seq)
-            for seq, event in events:
-                self._apply(event)
-                self._seq = seq
+            # Deterministic clock: score using max event timestamp, not
+            # wall-clock. Identical logs => identical entrenchment =>
+            # identical winners, regardless of when the replay runs.
+            replay_now = self._replay_now(events)
+            with fixed_now(replay_now):
+                for seq, event in events:
+                    self._apply(event)
+                    self._seq = seq
             return len(events)
+
+    def _replay_now(self, events: list) -> float:
+        """Deterministic 'now' for replay: max event timestamp."""
+        max_ts = 0.0
+        for _, event in events:
+            ts = event.get("payload", {}).get("timestamp", 0) or 0
+            if ts > max_ts:
+                max_ts = ts
+        return max_ts if max_ts > 0 else time.time()
 
     def _rebuild(self) -> int:
         """Clear local state and replay the entire log. Used for gossip
         logs where positional sequence numbers are not stable."""
         self.store = BeliefStore()
         events = self.log.read_since(0)
-        for seq, event in events:
-            self._apply(event)
+        replay_now = self._replay_now(events)
+        with fixed_now(replay_now):
+            for seq, event in events:
+                self._apply(event)
         self._seq = len(events)
         return len(events)
 
