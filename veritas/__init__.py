@@ -25,12 +25,20 @@ from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
 from .distributed_gossip import GossipEventLog
 from .export import to_json, to_dot, to_graphml
 
-# BFT is optional (requires cryptography).
+# BFT is optional (requires cryptography). Lazy via __getattr__ (PEP 562)
+# so the import doesn't fail when cryptography is missing.
+_BFT_AVAILABLE = False
 try:
-    from .distributed_bft import ByzantineTolerantLog
+    import veritas.distributed_bft as _bft_module
     _BFT_AVAILABLE = True
-except ImportError:
-    _BFT_AVAILABLE = False
+except ImportError:  # pragma: no cover
+    _bft_module = None  # type: ignore[assignment]
+
+
+def __getattr__(name: str):  # type: ignore[no-redef]
+    if name == "ByzantineTolerantLog" and _bft_module is not None:
+        return _bft_module.ByzantineTolerantLog
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 from .entrenchment import (
     corroboration_score,
     entrenchment,
