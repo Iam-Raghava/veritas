@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS audit (
 """
 
 # Built-in detectors resolvable by name on load.
+# Note: detectors requiring optional dependencies (transformers, etc.)
+# are resolved lazily — the import happens on first use, not at module
+# load, so `import veritas.persist` never fails for missing extras.
 _BUILTIN_DETECTORS: dict[str, ContradictionFn] = {
     "heuristic": heuristic_contradiction,
 }
@@ -79,6 +82,30 @@ def _resolve_detector(name: str) -> ContradictionFn:
         return _custom_detectors[name]
     if name in _BUILTIN_DETECTORS:
         return _BUILTIN_DETECTORS[name]
+    # Lazy built-ins (optional dependencies).
+    if name == "hybrid":
+        from .detect_hybrid import HybridDetector
+        fn = HybridDetector().contradicts
+        _BUILTIN_DETECTORS[name] = fn
+        return fn
+    if name == "semantic":
+        from .detect_semantic import SemanticDetector
+        fn = SemanticDetector().contradicts
+        _BUILTIN_DETECTORS[name] = fn
+        return fn
+    if name == "nli":
+        from .detect_nli import HuggingFaceNLIDetector
+        fn = HuggingFaceNLIDetector().contradicts
+        _BUILTIN_DETECTORS[name] = fn
+        return fn
+    if name == "llm":
+        from .detect_llm import LLMJudgeDetector
+        # LLMJudgeDetector requires API config; can't auto-instantiate.
+        # Caller must use register_detector().
+        raise ValueError(
+            "detector 'llm' requires API configuration. "
+            "Register it with register_detector() before loading."
+        )
     raise ValueError(
         f"unknown detector '{name}'. Register it with register_detector() "
         f"before loading."
