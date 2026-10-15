@@ -24,6 +24,13 @@ from .timetravel import TimeTravel
 from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
 from .distributed_gossip import GossipEventLog
 from .export import to_json, to_dot, to_graphml
+
+# BFT is optional (requires cryptography).
+try:
+    from .distributed_bft import ByzantineTolerantLog
+    _BFT_AVAILABLE = True
+except ImportError:
+    _BFT_AVAILABLE = False
 from .entrenchment import (
     corroboration_score,
     entrenchment,
@@ -51,7 +58,7 @@ from .explain import Explainer
 from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 __all__ = [
     "Belief",
@@ -103,3 +110,6 @@ __all__ = [
     "SQLiteBackend",
     "get_backend",
 ]
+
+if _BFT_AVAILABLE:
+    __all__.append("ByzantineTolerantLog")
