@@ -60,17 +60,19 @@ class HybridDetector(Detector):
             # Different relation names: fall through to NLI.
             # (e.g., "ceo" vs "chief executive officer")
 
-        # Layer 2: NLI fallback for unparsable or paraphrased pairs
-        return self._nli_contradicts(a.proposition, b.proposition)
-
-    def _nli_contradicts(self, p1: str, p2: str) -> bool:
-        if self._nli_failed:
-            return False
+        # Layer 2: NLI fallback for unparsable or paraphrased pairs.
+        # Fail-open to heuristic (not to "no contradiction") when NLI
+        # is unavailable.
         try:
-            pipe = self._ensure_nli()
+            return self._nli_contradicts(a.proposition, b.proposition)
         except ImportError:
             self._nli_failed = True
-            return False
+            return heuristic_contradiction(a, b)
+
+    def _nli_contradicts(self, p1: str, p2: str) -> bool:
+        # Raises ImportError if NLI is unavailable (caller falls back
+        # to heuristic).
+        pipe = self._ensure_nli()
 
         # Test both directions; contradiction in either direction counts.
         for prem, hyp in [(p1, p2), (p2, p1)]:
