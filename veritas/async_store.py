@@ -18,7 +18,6 @@ import asyncio
 from typing import Any, Callable
 
 from .belief import Belief
-from .detect import Detector
 from .store import BeliefStore
 
 
