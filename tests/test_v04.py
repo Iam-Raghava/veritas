@@ -112,7 +112,7 @@ def test_ee2_horn_best_proof():
                         source_reliability=0.9, confidence=0.9,
                         justifications=[[strong.id], [weak.id]])
     ent_c = s.entrenchment_of(s._beliefs[c.id])
-    ent_strong = s.entrenchment_of(s._beliefs[strong.id])
+    s.entrenchment_of(s._beliefs[strong.id])
     # C should be close to strong, not dragged to weak.
     check("Horn EE2: best proof warrants",
           ent_c > 0.5)  # well above weak's 0.2
@@ -220,7 +220,7 @@ def test_constraint_weakest_retracted():
         return []
 
     s.add_constraint("budget", budget_check)
-    b1 = s.assert_belief("Budget is $10,000", source="x",
+    s.assert_belief("Budget is $10,000", source="x",
                          source_reliability=0.9, confidence=0.9,
                          metadata={"budget": 10000}, ground=True)
     # Weak existing cost.
