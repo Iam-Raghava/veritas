@@ -27,6 +27,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 ## What's new
 
+- **v0.13.0 — P2P gossip**: `GossipEventLog` — every node keeps a full copy, no single point of failure, partition-tolerant with deterministic merge on heal. No Raft, no leader, no coordinator.
 - **v0.12.0 — Distributed**: `DistributedBeliefStore` shares one consistent belief state across machines via a shared event log. Event sourcing + deterministic replay = eventual convergence, no consensus protocol.
 - **v0.11.0 — Export**: JSON, Graphviz DOT, GraphML — visualize belief graphs in Gephi.
 - **v0.10.0 — Time-travel**: Reconstruct what the agent believed at any point. "What did it know when it made that decision?"
@@ -275,6 +276,12 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.13.0 — peer-to-peer gossip replication:
+- `GossipEventLog(path, node_id, peers)` — each node has its own SQLite
+  file, events replicate via gossip. Kill any node, the rest keep working.
+  Partition-tolerant: both sides progress independently, merge
+  deterministically on reconnect. CRDT-style, no coordinator.
 
 v0.12.0 — distributed belief sharing:
 - `DistributedBeliefStore(node_id, log)` + `SQLiteEventLog(path)` for
