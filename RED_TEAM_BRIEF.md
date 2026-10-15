@@ -90,7 +90,7 @@ costs); everything else competition-specific is gone.
 
 ## 4. Testing Regime
 
-**E2E gate** (`tests/verify_e2e.sh`): **33/33 green.** Covers package integrity, all unit suites, CLI, persistence, deployment, publish-clean.
+**E2E gate** (`tests/verify_e2e.sh`): **38/38 green.** Covers package integrity, all unit suites, CLI, persistence, deployment, publish-clean.
 
 **Test suites:**
 - Core: 40/40. Adversarial: 14/14. Differential (vs reference implementation): clean. Properties, mutation (7/7 mutants killed), determinism (frozen-time replay byte-identical), README doctest (3/3), README sync (58/58 — version/exports/test-files/changelog match code).
