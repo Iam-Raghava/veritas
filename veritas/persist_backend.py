@@ -18,20 +18,11 @@ Usage:
 
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from veritas.store import BeliefStore
-
-
-def _safe_dumps(obj) -> str:
-    return json.dumps(obj, default=str)
-
-
-def _safe_loads(s: str):
-    return json.loads(s) if s else []
 
 
 class PersistenceBackend(ABC):
