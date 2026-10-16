@@ -69,3 +69,50 @@ class HuggingFaceNLIDetector(Detector):
             or self._contradiction_score(b.proposition, a.proposition)
             >= self.threshold
         )
+
+    def contradicts_batch(
+        self, belief: Belief, candidates: list[Belief]
+    ) -> list[Belief]:
+        """Batched NLI: single pipeline call for all 2K pairs.
+
+        Instead of 2K sequential forward passes, we batch all
+        (premise, hypothesis) pairs into one pipeline call — ~10x faster
+        on GPU, and the pipeline's internal batching is far more efficient
+        than Python-loop overhead.
+        """
+        if not candidates:
+            return []
+        pipe = self._ensure_pipeline()
+        # Build 2K pairs: (belief, cand) and (cand, belief) for symmetry.
+        pairs: list[str] = []
+        for c in candidates:
+            if c.id == belief.id:
+                pairs.append("")
+                pairs.append("")
+            else:
+                pairs.append(f"{belief.proposition} </s></s> {c.proposition}")
+                pairs.append(f"{c.proposition} </s></s> {belief.proposition}")
+        try:
+            all_results = pipe(pairs)
+        except Exception:
+            # Fall back to sequential on batch failure.
+            return [c for c in candidates if self.contradicts(belief, c)]
+        result: list[Belief] = []
+        for i, c in enumerate(candidates):
+            if c.id == belief.id:
+                continue
+            hit = False
+            for r in (all_results[2 * i], all_results[2 * i + 1]):
+                # Normalize: may be [{...}] or [[{...}]].
+                items = r[0] if r and isinstance(r[0], list) else r
+                for item in items or []:
+                    label = str(item.get("label", "")).upper()
+                    if ("CONTRADICT" in label
+                            and float(item.get("score", 0.0)) >= self.threshold):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                result.append(c)
+        return result
