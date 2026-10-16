@@ -28,6 +28,22 @@ class Detector(Protocol):
         """True if beliefs a and b cannot both hold."""
         ...
 
+    def contradicts_batch(
+        self, belief: Belief, candidates: list[Belief]
+    ) -> list[Belief]:
+        """Batch contradiction check: return the subset of candidates
+        that contradict `belief`.
+
+        Default implementation loops over `contradicts`. Detectors backed
+        by neural models (HuggingFace NLI, LLM judges) SHOULD override this
+        to run a single batched forward pass / single prompt instead of N
+        sequential calls — 10-20x faster and cheaper.
+
+        The store calls this OUTSIDE the global lock when available, so
+        slow detectors don't block concurrent readers.
+        """
+        return [c for c in candidates if self.contradicts(belief, c)]
+
 
 def as_function(detector: Detector | ContradictionFn) -> ContradictionFn:
     """Adapt a Detector (or pass through a plain function).
