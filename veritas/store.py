@@ -414,9 +414,54 @@ class BeliefStore:
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
         """Snapshots of active beliefs contradicting `belief`."""
+        # Fast path: detectors with a batched implementation run OUTSIDE
+        # the global lock (they may do GPU inference or API calls).
+        # We snapshot candidates under lock, release, then adjudicate.
+        det = getattr(self, "detector", None)
+        batch_fn = getattr(det, "contradicts_batch", None)
+        # Only use the batch path if the detector OVERRIDES the default
+        # (which just loops over contradicts — no benefit outside lock).
+        if (det is not None and batch_fn is not None
+                and type(det).contradicts_batch is not Detector.contradicts_batch):
+            with self._lock:
+                candidates = self._candidate_snapshots_locked(belief)
+            hits = batch_fn(belief, candidates)
+            # Filter to still-active (may have changed during batch).
+            with self._lock:
+                active_ids = {b.id for b in self._beliefs.values()
+                              if b.is_active}
+                return [b.snapshot() for b in hits
+                        if b.id in active_ids and b.id != belief.id]
         with self._lock:
             return [b.snapshot()
                     for b in self._contradictors_of_locked(belief)]
+
+    def _candidate_snapshots_locked(self, belief: Belief) -> list[Belief]:
+        """Candidate contradictors (snapshots) for batch adjudication.
+
+        Uses the same index as _contradictors_of_locked but returns
+        snapshots without running the detector. Caller must hold the lock.
+        """
+        if not self._indexed:
+            return [b.snapshot() for b in self.active_beliefs()
+                    if b.id != belief.id]
+        candidate_ids: set[str] = set()
+        fp = functional_parts(belief.proposition)
+        if fp:
+            candidate_ids.update(self._by_functional.get((fp[0], fp[1]), set()))
+        sp = subject_object_parts(belief.proposition)
+        if sp:
+            candidate_ids.update(self._by_subj_obj.get(sp, set()))
+        for cid in belief.metadata.get("contradicts", []) or []:
+            candidate_ids.add(cid)
+        candidate_ids.update(self._contradicts_rev.get(belief.id, set()))
+        candidate_ids.discard(belief.id)
+        result = []
+        for cid in sorted(candidate_ids):
+            other = self._beliefs.get(cid)
+            if other is not None and other.is_active:
+                result.append(other.snapshot())
+        return result
 
     def _vector_candidates(self, belief: Belief) -> list[Belief] | None:
         """Top-K semantically similar candidates via vector pre-filter.
