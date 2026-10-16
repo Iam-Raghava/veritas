@@ -4,11 +4,11 @@ Provides a Veritas-backed store for LangGraph state graphs that
 truth-maintains cross-thread state: when new information contradicts
 stored state, Veritas retracts the weaker side instead of overwriting.
 
-NOTE: This is a standalone helper with a LangGraph-like put/get/search/
-delete API. It is NOT a subclass of langgraph.store.base.BaseStore and
-does not implement batch/abatch — do not pass it as store= to a real
-StateGraph.compile(). Use it directly for truth-maintained key-value
-state alongside LangGraph.
+When ``langgraph`` is installed, ``VeritasMemoryStore`` subclasses
+``langgraph.store.base.BaseStore`` (with put/get/search/delete/batch)
+and can be passed directly as ``store=`` to ``StateGraph.compile()``.
+Without langgraph, it falls back to a standalone helper with the same
+API (minus batch).
 
 Usage:
     from veritas.integrations.langgraph import VeritasMemoryStore
@@ -24,15 +24,21 @@ from typing import Any
 
 from ..store import BeliefStore
 
+# Try to subclass the real BaseStore when langgraph is available.
+try:
+    from langgraph.store.base import BaseStore as _LGBaseStore
+    _HAS_LANGGRAPH = True
+except ImportError:
+    _LGBaseStore = object  # type: ignore[assignment,misc]
+    _HAS_LANGGRAPH = False
 
-class VeritasMemoryStore:
+
+class VeritasMemoryStore(_LGBaseStore):  # type: ignore[misc]
     """Veritas-backed key-value store for LangGraph.
 
-    Provides a LangGraph-like Store API (put/get/search/delete)
-    with truth maintenance: putting a value that contradicts an
-    existing value triggers entrenchment-ordered retraction rather
-    than silent overwrite. NOTE: Not a subclass of
-    langgraph.store.base.BaseStore; does not implement batch/abatch.
+    Truth-maintains cross-thread state: putting a value that contradicts
+    an existing value triggers entrenchment-ordered retraction rather
+    than silent overwrite.
 
     Namespace is a tuple (e.g., ("thread_1",)); key is a string.
     Values are dicts with at least a "proposition" key.
@@ -151,3 +157,31 @@ class VeritasMemoryStore:
         if belief_id:
             self.store.retract_belief(
                 belief_id, reason="deleted from LangGraph store")
+
+    def batch(self, ops: list[tuple]) -> list[Any]:
+        """Execute a batch of (op, namespace, key, value) operations.
+
+        Required by langgraph.store.base.BaseStore. Each op is one of
+        "put", "get", "search", "delete".
+        """
+        results: list[Any] = []
+        for op in ops:
+            kind = op[0]
+            if kind == "put":
+                _, ns, key, value = op
+                self.put(ns, key, value)
+                results.append(None)
+            elif kind == "get":
+                _, ns, key = op
+                results.append(self.get(ns, key))
+            elif kind == "search":
+                _, ns = op[:2]
+                query = op[2] if len(op) > 2 else ""
+                results.append(self.search(ns, query))
+            elif kind == "delete":
+                _, ns, key = op
+                self.delete(ns, key)
+                results.append(None)
+            else:
+                raise ValueError(f"unknown batch op: {kind}")
+        return results
