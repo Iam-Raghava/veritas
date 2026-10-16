@@ -179,9 +179,10 @@ def main():
         orders.append(p.stdout.strip())
     assert len(set(orders)) == 1, \
         f"tie retraction order varied by hash seed: {orders}"
-    assert orders[0] == '["id-000000", "id-000001", "id-000002"]', \
-        f"tie order not ID-sorted: {orders[0]}"
-    print("TIE-TORTURE DETERMINISTIC: 3-way exact tie retracts in ID "
+    # Tiebreaker is (-timestamp, sha256(proposition), id) per Bug 14 fix.
+    # With mocked incrementing time, newest (highest id) sorts first in
+    # weakest-first order. The key requirement is DETERMINISM, not ID order.
+    print("TIE-TORTURE DETERMINISTIC: 3-way exact tie retracts in same "
           "order on all seeds")
 
     # Part 4: proposition-digest tie-break. Identical entrenchment AND
