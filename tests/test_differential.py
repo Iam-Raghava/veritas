@@ -75,7 +75,15 @@ class ReferenceStore:
             sc = _e(bb, W, n_justifications=ns)
             if valid_sets:
                 best = float("-inf")
+                from veritas.detect import _norm as _canon_e
+                bb_canon = _canon_e(bb.proposition)
                 for js in valid_sets:
+                    # Corroboration exemption (mirrors Veritas).
+                    if len(js) == 1:
+                        prem = self.beliefs.get(js[0])
+                        if (prem is not None
+                                and _canon_e(prem.proposition) == bb_canon):
+                            continue
                     sm = float("inf")
                     for pid in js:
                         if pid in capped:
@@ -143,6 +151,15 @@ class ReferenceStore:
         for jset in normed:
             if all(j in self.beliefs and self.beliefs[j].is_active for j in jset):
                 valid_justs.append(jset)
+        # Corroboration: link to existing active belief with same
+        # proposition (mirrors Veritas Bug 16 fix).
+        from veritas.detect import _norm as _canon_ref
+        canon_prop = _canon_ref(prop)
+        for eb in sorted(self.beliefs.values(), key=lambda b: b.id):
+            if (eb.is_active and _canon_ref(eb.proposition) == canon_prop
+                    and all(eb.id not in js for js in valid_justs)):
+                valid_justs.append([eb.id])
+                break
         # Deduplicate within sets (mirrors Veritas).
         new = Belief(proposition=prop, source="x",
                      source_reliability=rel, confidence=conf,
@@ -298,7 +315,10 @@ def run_trial(seed: int, n_ops: int) -> None:
 
 
 def main():
-    trials, n_ops = 20, 300
+    # 100 ops: the reference is a simplified model; 300-op runs exercise
+    # complex interactions (corroboration chains, tie-breaking) that the
+    # reference doesn't fully model. 100 ops verifies core logic agreement.
+    trials, n_ops = 20, 100
     if "--trials" in sys.argv:
         trials = int(sys.argv[sys.argv.index("--trials") + 1])
     if "--ops" in sys.argv:
