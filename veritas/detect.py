@@ -83,10 +83,19 @@ def functional_parts(proposition: str) -> tuple[str, str, str] | None:
 
     Public so the store can build its contradiction index.
     Parsed once per unique proposition; cached for dense stores.
+
+    Returns None for negated objects ("X's CEO is not Bob") — those are
+    handled by the negation detector, not as positive functional
+    assignments. Otherwise "CEO is Jane" vs "CEO is not Bob" would be
+    falsely flagged as contradictory.
     """
     m = _SPOSSESSIVE.match(proposition) or _SPLAIN.match(proposition)
     if m:
-        return _norm(m.group("subj")), _norm(m.group("rel")), _norm(m.group("obj"))
+        obj = _norm(m.group("obj"))
+        # Negated object: not a positive assignment.
+        if obj.lower().startswith("not "):
+            return None
+        return _norm(m.group("subj")), _norm(m.group("rel")), obj
     return None
 
 
