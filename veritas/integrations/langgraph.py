@@ -92,14 +92,21 @@ class VeritasMemoryStore:
             },
         )
         if belief is not None:
-            # New belief accepted: now retract the old one.
+            # New belief accepted: retract the old one ONLY if the new
+            # outranks it. A weaker update must not destroy a stronger
+            # incumbent (no latest-wins).
             if old_id:
                 old_belief = self.store.get(old_id)
                 if old_belief and old_belief.is_active:
-                    self.store.retract_belief(
-                        old_id,
-                        reason=f"superseded by state update at '{ns_key}'",
-                    )
+                    new_ent = self.store.entrenchment_of(belief)
+                    old_ent = self.store.entrenchment_of(old_belief)
+                    if new_ent >= old_ent:
+                        self.store.retract_belief(
+                            old_id,
+                            reason=f"superseded by state update at '{ns_key}'",
+                        )
+                    # Else: old stays active; new coexists (or was already
+                    # handled by contradiction logic).
             self._index[(namespace, key)] = belief.id
         # If belief is None (rejected), old_id remains in _index and the
         # old belief stays active. No data loss.
