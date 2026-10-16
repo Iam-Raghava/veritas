@@ -62,6 +62,13 @@ from .extractor import (
 from .detect_vector import VectorPrefilterDetector
 from .store import BeliefStore
 from .async_store import AsyncBeliefStore
+from .governor import (
+    MemoryGovernor,
+    IngestedClaim,
+    canon_entity,
+    canon_relation,
+    entities_of,
+)
 from .observability import Metrics
 from .explain import Explainer
 from .calibration import CalibrationTracker
@@ -73,6 +80,11 @@ __all__ = [
     "Belief",
     "BeliefStore",
     "AsyncBeliefStore",
+    "MemoryGovernor",
+    "IngestedClaim",
+    "canon_entity",
+    "canon_relation",
+    "entities_of",
     "Metrics",
     "Explainer",
     "CalibrationTracker",
