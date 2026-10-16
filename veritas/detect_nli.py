@@ -97,6 +97,10 @@ class HuggingFaceNLIDetector(Detector):
         except Exception:
             # Fall back to sequential on batch failure.
             return [c for c in candidates if self.contradicts(belief, c)]
+        # Defensive: pipeline must return 2 results per candidate.
+        # (Test mocks or unusual pipelines may not support batch.)
+        if not isinstance(all_results, list) or len(all_results) != 2 * len(candidates):
+            return [c for c in candidates if self.contradicts(belief, c)]
         result: list[Belief] = []
         for i, c in enumerate(candidates):
             if c.id == belief.id:
