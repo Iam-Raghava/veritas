@@ -131,6 +131,16 @@ class Belief:
             raise ValueError("confidence must be in [0, 1]")
         if not 0.0 <= self.source_reliability <= 1.0:
             raise ValueError("source_reliability must be in [0, 1]")
+        # NaN check: NaN comparisons are always False, so `0 <= nan <= 1`
+        # is False (already rejected above), but `nan > x` is also False,
+        # which would bypass the valid_from > valid_until check and make
+        # temporally_overlaps() return False forever (immortal belief).
+        import math
+        for name, val in (("timestamp", self.timestamp),
+                          ("valid_from", self.valid_from),
+                          ("valid_until", self.valid_until)):
+            if val is not None and math.isnan(val):
+                raise ValueError(f"{name} must not be NaN")
         if (self.valid_from is not None and self.valid_until is not None
                 and self.valid_from > self.valid_until):
             raise ValueError("valid_from cannot be greater than valid_until")
