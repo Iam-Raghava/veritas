@@ -239,11 +239,20 @@ class DistributedBeliefStore:
             # wall-clock. Identical logs => identical entrenchment =>
             # identical winners, regardless of when the replay runs.
             replay_now = self._replay_now(events)
+            applied = 0
             with fixed_now(replay_now):
                 for seq, event in events:
-                    self._apply(event)
+                    try:
+                        self._apply(event)
+                    except Exception:
+                        # Malformed event (e.g., invalid confidence):
+                        # skip it, don't poison the sync cursor.
+                        # (BFT mode validates signatures; this is for
+                        # crash-fault gossip mode.)
+                        pass
                     self._seq = seq
-            return len(events)
+                    applied += 1
+            return applied
 
     def _replay_now(self, events: list) -> float:
         """Deterministic 'now' for replay: max event timestamp."""
@@ -262,7 +271,11 @@ class DistributedBeliefStore:
         replay_now = self._replay_now(events)
         with fixed_now(replay_now):
             for seq, event in events:
-                self._apply(event)
+                try:
+                    self._apply(event)
+                except Exception:
+                    # Malformed event: skip, don't break rebuild.
+                    pass
         self._seq = len(events)
         return len(events)
 
