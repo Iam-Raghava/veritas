@@ -20,6 +20,9 @@ CASCADE_RETRACTED = "cascade_retracted"
 CASCADE_SURVIVED = "cascade_survived"
 REJECTED = "rejected"
 CONSTRAINT_ERROR = "constraint_error"
+# Distinct event for a retracted belief reactivated by re-assertion
+# (stable identity). Not "asserted" — the belief ID already exists.
+REACTIVATED = "reactivated"
 
 
 @dataclass
