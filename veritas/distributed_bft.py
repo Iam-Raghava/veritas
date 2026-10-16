@@ -297,24 +297,27 @@ class ByzantineTolerantLog(GossipEventLog):
 
         # 4. Validate lamport (prevent clock poisoning).
         # A malicious node could send lamport=2**60 to poison every
-        # honest node's Lamport clock via _observe(). Bound the jump.
+        # honest node's Lamport clock via _observe(). We bound the jump
+        # but do NOT blacklist: an honest node that was offline for a
+        # long time will legitimately see large jumps when it reconnects.
+        # Blacklisting here would partition honest nodes.
+        # Instead, _observe() is capped (see below).
         MAX_LAMPORT_JUMP = 10000
         with self._lock:
             local_lamport = self._lamport
+        lamport_capped = lamport
         if lamport > local_lamport + MAX_LAMPORT_JUMP:
-            self._blacklist(
-                node_id, "lamport_poisoning",
-                json.dumps({"lamport": lamport,
-                            "local": local_lamport}))
-            return False, "lamport jump too large, node blacklisted"
+            # Cap the clock advancement; accept the event.
+            lamport_capped = local_lamport + MAX_LAMPORT_JUMP
 
         # 5. Validate payload (prevent entrenchment max-out).
         # A malicious node with valid keys could assert
         # source_reliability=1.0/confidence=1.0/timestamp=future to make
-        # its beliefs unbeatable. Clamp to valid ranges; absurd timestamps
-        # are rejected. (Note: this does not prevent a malicious node from
-        # asserting high-but-valid reliability — that's a trust-model
-        # limitation, not a code bug. See module docstring.)
+        # its beliefs unbeatable. We VALIDATE here but do NOT mutate the
+        # payload: the signature covers the original payload, and mutating
+        # it would break signature verification on re-gossip (causing
+        # false equivocation accusations and blacklisting honest nodes).
+        # Clamping happens at application time in DistributedBeliefStore.
         if event_type == "assert":
             rel = payload.get("source_reliability", 0.5)
             conf = payload.get("confidence", 0.8)
@@ -324,15 +327,11 @@ class ByzantineTolerantLog(GossipEventLog):
             # Timestamp must not be more than 1 hour in the future.
             if ts and ts > time.time() + 3600:
                 return False, "timestamp too far in future"
-            # Clamp remote reliability: a remote node cannot claim perfect
-            # 1.0 reliability. This prevents unbeatable malicious beliefs.
-            # (Local assertions can still use 1.0.)
-            if rel >= 1.0:
-                payload = dict(payload)
-                payload["source_reliability"] = 0.95
 
         # 6. Accept.
-        self._observe(lamport)
+        # Use the capped lamport for clock advancement (prevents poisoning
+        # while allowing honest catch-up after offline periods).
+        self._observe(lamport_capped)
         conn = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
         try:
             conn.execute(
