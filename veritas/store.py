@@ -405,10 +405,13 @@ class BeliefStore:
             return None
         import numpy as np
         embedder = self._vector_embedder
-        # Invalidate cache on generation change.
-        if self._vector_cache_gen != self._ent_gen:
-            self._vector_cache.clear()
-            self._vector_cache_gen = self._ent_gen
+        # Evict retracted beliefs (embeddings are immutable per ID;
+        # no need to wipe the entire cache on every write).
+        active_ids = {b.id for b in self.active_beliefs()}
+        stale = [bid for bid in self._vector_cache if bid not in active_ids]
+        for bid in stale:
+            del self._vector_cache[bid]
+        self._vector_cache_gen = self._ent_gen
         # Embed query.
         try:
             q_emb = embedder.embed([belief.proposition])[0]
@@ -1027,6 +1030,13 @@ class BeliefStore:
             valid_until=valid_until,
             **({"id": _belief_id} if _belief_id else {}),
         )
+        # _belief_id is for distributed replay; it must not collide with
+        # an existing belief (that would silently overwrite history).
+        if _belief_id and _belief_id in self._beliefs:
+            raise ValueError(
+                f"belief id {_belief_id} already exists; _belief_id "
+                f"must be unique"
+            )
         new_ent = self.entrenchment_of(new)
 
         contradictors = self.contradictors_of(new)
