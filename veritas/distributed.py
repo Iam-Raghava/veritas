@@ -283,12 +283,24 @@ class DistributedBeliefStore:
         etype = event["event_type"]
         payload = event["payload"]
         if etype == "assert":
+            # BFT: clamp remote reliability to <1.0. A remote node cannot
+            # claim perfect reliability (prevents unbeatable malicious
+            # beliefs). Applied here at application time, NOT in the log's
+            # receive_signed (mutating there would break the signature for
+            # re-gossip, causing false equivocation blacklists).
+            rel = payload.get("source_reliability", 0.5)
+            log_node = getattr(self.log, "node_id", None)
+            event_node = event.get("node_id")
+            is_bft = hasattr(self.log, "_private_key")
+            if (is_bft and event_node and log_node
+                    and event_node != log_node and rel >= 1.0):
+                rel = 0.95
             # _belief_id ensures every node assigns the same ID.
             self.store.assert_belief(
                 proposition=payload["proposition"],
                 confidence=payload.get("confidence", 0.8),
                 source=payload.get("source", "unknown"),
-                source_reliability=payload.get("source_reliability", 0.5),
+                source_reliability=rel,
                 justifications=payload.get("justifications"),
                 metadata=payload.get("metadata"),
                 timestamp=payload.get("timestamp"),
