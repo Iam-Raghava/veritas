@@ -41,6 +41,7 @@ from .audit import (
     CASCADE_RETRACTED,
     CASCADE_SURVIVED,
     CONSTRAINT_ERROR,
+    REACTIVATED,
     REJECTED,
     RETRACTED,
     AuditLog,
@@ -1081,6 +1082,7 @@ class BeliefStore:
         valid_from: float | None = None,
         valid_until: float | None = None,
         _belief_id: str | None = None,
+        reuse_retracted_id: bool = False,
     ) -> Belief | None:
         """Assert a new belief, contracting contradictors if necessary.
 
@@ -1131,30 +1133,57 @@ class BeliefStore:
         # already justified via this belief.)
         from .detect import _norm as _canon
         canon_prop = _canon(proposition)
-        # Sort by ID for deterministic selection across hash seeds.
-        for existing in sorted(self._beliefs.values(), key=lambda b: b.id):
-            if (existing.is_active and _canon(existing.proposition) == canon_prop
-                    and existing.id not in valid_justs
-                    and all(existing.id not in js for js in valid_justs)):
-                # Add as a separate AND-set (OR across sets): the new
-                # belief is corroborated by the existing one, but doesn't
-                # require it (independent source).
-                valid_justs.append([existing.id])
-                break  # One link suffices; transitivity handles the rest.
+        # STABLE IDENTITY (opt-in via reuse_retracted_id): if a RETRACTED
+        # belief with the same canonical proposition exists, reactivate it
+        # (preserving its ID) instead of creating a new belief. This ensures
+        # dependents referencing the old ID are revived via
+        # _try_rederive_dependents, rather than orphaned by a new UUID.
+        # Default False: preserves the audit invariant that each ID is
+        # asserted once (see test_audit_proof.py).
+        reactivated = None
+        if reuse_retracted_id:
+            for existing in sorted(self._beliefs.values(), key=lambda b: b.id):
+                if (not existing.is_active
+                        and _canon(existing.proposition) == canon_prop
+                        and existing.id not in pruned_justs):
+                    reactivated = existing
+                    break
 
-        new = Belief(
-            proposition=proposition,
-            confidence=confidence,
-            source=source,
-            source_reliability=source_reliability,
-            justifications=valid_justs,
-            metadata=copy.deepcopy(metadata) if metadata else {},
-            timestamp=timestamp,  # None -> Belief defaults to now; 0.0 stays 0.0
-            ground=ground,
-            valid_from=valid_from,
-            valid_until=valid_until,
-            **({"id": _belief_id} if _belief_id else {}),
-        )
+        was_reactivated = reactivated is not None
+        if reactivated is not None:
+            # Reactivate: update metadata, set active, then adjudicate.
+            reactivated.status = "active"
+            reactivated.timestamp = timestamp or reactivated.timestamp
+            # Update entrenchment-relevant fields: the re-assertion may
+            # have different reliability/confidence than the retracted
+            # version. Without this, a reactivated belief keeps its old
+            # (weaker) entrenchment and loses adjudications it should win.
+            reactivated.source_reliability = source_reliability
+            reactivated.confidence = confidence
+            reactivated.source = source
+            if metadata:
+                reactivated.metadata.update(copy.deepcopy(metadata))
+            # Update justifications if provided.
+            if valid_justs:
+                reactivated.justifications = valid_justs
+            # Re-index: the belief was unindexed when retracted.
+            self._index(reactivated)
+            new = reactivated
+            # Fall through to contradiction check below.
+        else:
+            new = Belief(
+                proposition=proposition,
+                confidence=confidence,
+                source=source,
+                source_reliability=source_reliability,
+                justifications=valid_justs,
+                metadata=copy.deepcopy(metadata) if metadata else {},
+                timestamp=timestamp,
+                ground=ground,
+                valid_from=valid_from,
+                valid_until=valid_until,
+                **({"id": _belief_id} if _belief_id else {}),
+            )
         # _belief_id is for distributed replay; it must not collide with
         # an existing belief (that would silently overwrite history).
         if _belief_id and _belief_id in self._beliefs:
@@ -1233,9 +1262,10 @@ class BeliefStore:
                 self._bump_metric("rejections")
                 return None
             self._audit.record(
-                ASSERTED,
+                REACTIVATED if was_reactivated else ASSERTED,
                 new.id,
                 new.proposition,
+                f"{'reactivated; ' if was_reactivated else ''}"
                 f"no contradictions; entrenchment={new_ent:.3f}",
                 {"entrenchment": new_ent,
                  "pruned_justifications": pruned_justs,
@@ -1426,10 +1456,11 @@ class BeliefStore:
             self._bump_metric("rejections")
             return None
         self._audit.record(
-            ASSERTED,
+            REACTIVATED if was_reactivated else ASSERTED,
             new.id,
             new.proposition,
-            f"asserted after contracting {len(retracted)} belief(s); "
+            f"{'reactivated' if was_reactivated else 'asserted'} after "
+            f"contracting {len(retracted)} belief(s); "
             f"entrenchment={new_ent:.3f}",
             {"entrenchment": new_ent,
              "retracted_ids": [b.id for b in retracted],
