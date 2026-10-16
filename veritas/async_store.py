@@ -26,6 +26,14 @@ class AsyncBeliefStore:
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._store = BeliefStore(*args, **kwargs)
+        # Capture the running event loop (if any) so async subscriber
+        # callbacks fired from worker threads can be scheduled on the
+        # main loop via run_coroutine_threadsafe (instead of creating a
+        # second loop, which breaks callbacks bound to the main loop).
+        try:
+            self._store._async_main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._store._async_main_loop = None
 
     @property
     def sync_store(self) -> BeliefStore:
@@ -87,21 +95,22 @@ class AsyncBeliefStore:
     async def subscribe(
         self, belief_id: str, callback: Callable[[str, str], None]
     ) -> None:
-        # Subscription registry is sync; no I/O to offload.
-        self._store.subscribe(belief_id, callback)
+        # Offload to thread: subscribe acquires the store lock, which
+        # may be held by a worker thread running assert_belief.
+        await asyncio.to_thread(self._store.subscribe, belief_id, callback)
 
     async def unsubscribe(
         self, belief_id: str, callback: Callable[[str, str], None]
     ) -> None:
-        self._store.unsubscribe(belief_id, callback)
+        await asyncio.to_thread(self._store.unsubscribe, belief_id, callback)
 
     async def add_constraint(
         self, name: str, check: Callable[[list[Belief]], list[str]]
     ) -> None:
-        self._store.add_constraint(name, check)
+        await asyncio.to_thread(self._store.add_constraint, name, check)
 
     async def remove_constraint(self, name: str) -> None:
-        self._store.remove_constraint(name)
+        await asyncio.to_thread(self._store.remove_constraint, name)
 
     async def check_constraints(self) -> dict[str, list[str]]:
         return await asyncio.to_thread(self._store.check_constraints)
