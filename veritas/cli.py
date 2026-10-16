@@ -58,7 +58,14 @@ def cmd_assert(args: argparse.Namespace) -> int:
         print("REJECTED: a more entrenched contradictor holds (see `veritas audit`)")
         return 2
     print(f"asserted [{belief.id}] entrenchment={store.entrenchment_of(belief):.3f}")
-    retracted = [e for e in store.audit if e.event_type in ("retracted", "cascade_retracted")]
+    # Only count retractions from THIS assertion (timestamp >= belief's),
+    # not the entire store history.
+    retracted = [
+        e for e in store.audit
+        if e.event_type in ("retracted", "cascade_retracted")
+        and e.timestamp >= belief.timestamp
+        and e.belief_id != belief.id
+    ]
     if retracted:
         print(f"contracted {len(retracted)} belief(s):")
         for e in retracted[-5:]:
