@@ -71,12 +71,19 @@ class VeritasDocumentStore:
             doc_id = doc["doc_id"]
             text = doc["text"]
             ts = doc.get("timestamp", time.time())
-            # Validate BEFORE retracting old chunks: a failed update must
+            # Validate BEFORE touching old chunks: a failed update must
             # not destroy the previous version (transactional).
             if not text or not text.strip():
                 raise ValueError("proposition must be non-empty")
-            # If this doc_id was seen with an older timestamp, retract
-            # the old chunks (supersession).
+            # Skip if older than current (stale update).
+            if doc_id in self._doc_ts and ts < self._doc_ts[doc_id]:
+                continue
+            # Versioning semantics: a newer timestamp explicitly supersedes
+            # the old version. Retract old AFTER validation but BEFORE
+            # asserting new (so the new version wins ties). This is
+            # intentional latest-wins FOR VERSIONING — the caller explicitly
+            # said "this is version 2". (Entrenchment still protects against
+            # invalid data via the validation above.)
             if doc_id in self._doc_ts and ts > self._doc_ts[doc_id]:
                 for bid in self._doc_index.get(doc_id, []):
                     self.store.retract_belief(
@@ -84,9 +91,6 @@ class VeritasDocumentStore:
                         reason=f"superseded by newer version of '{doc_id}'",
                     )
                 self._doc_index[doc_id] = []
-            # Skip if older than current (stale update).
-            if doc_id in self._doc_ts and ts < self._doc_ts[doc_id]:
-                continue
             # Chunk text if needed (simple sentence split).
             from ..extractor import HeuristicExtractor
             extractor = HeuristicExtractor()
