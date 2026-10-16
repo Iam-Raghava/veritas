@@ -54,7 +54,10 @@ def as_function(detector: Detector | ContradictionFn) -> ContradictionFn:
     model asymmetry) from altering the contradiction graph — which would
     otherwise cause epistemic thrashing in multi-agent deployments.
     """
-    base = detector.contradicts if isinstance(detector, Detector) else detector
+    # Use hasattr, not isinstance(Detector): the Protocol now includes
+    # contradicts_batch, and detectors that don't override it (e.g.,
+    # HeuristicDetector) would fail the runtime_checkable isinstance.
+    base = detector.contradicts if hasattr(detector, "contradicts") else detector
 
     def symmetric(a, b) -> bool:
         # Short-circuit: if base(a, b) is True, skip the reverse call.
