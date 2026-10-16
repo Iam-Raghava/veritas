@@ -421,8 +421,13 @@ class BeliefStore:
         batch_fn = getattr(det, "contradicts_batch", None)
         # Only use the batch path if the detector OVERRIDES the default
         # (which just loops over contradicts — no benefit outside lock).
+        # getattr with default None handles detectors that don't define
+        # contradicts_batch at all (e.g., HeuristicDetector).
+        _default_batch = getattr(Detector, "contradicts_batch", None)
+        _det_batch = getattr(type(det), "contradicts_batch", None) if det else None
         if (det is not None and batch_fn is not None
-                and type(det).contradicts_batch is not Detector.contradicts_batch):
+                and _det_batch is not None
+                and _det_batch is not _default_batch):
             with self._lock:
                 candidates = self._candidate_snapshots_locked(belief)
             hits = batch_fn(belief, candidates)
