@@ -110,7 +110,8 @@ class HeuristicExtractor:
                     gd = m.groupdict()
                     subj = gd.get("subj", "").strip() or None
                     pred = gd.get("pred", "").strip() or None
-                    obj = gd.get("obj", "").strip() or None
+                    # Strip trailing punctuation from object ("Jane." -> "Jane").
+                    obj = gd.get("obj", "").strip().rstrip(".,;:!?") or None
                     conf = 0.9
                     break
             claims.append(ExtractedClaim(
@@ -155,17 +156,19 @@ Rules:
    Mark ground=false for inferences, conclusions, or reasoning.
 4. Extract temporal bounds if the text mentions when the claim is/was valid.
 5. List premises_referred: substrings from the text that this claim depends on for its justification.
-6. Output ONLY a JSON array. No markdown fences, no explanation.
+6. Output ONLY a JSON object with a "claims" key containing the array.
+   No markdown fences, no explanation. (The API requires a JSON object,
+   not a top-level array.)
 
 Example input: "Acme's CEO is Jane. She was appointed in January 2024. Revenue grew because sales increased."
 
 Example output:
-[
+{"claims": [
   {"proposition": "Acme's CEO is Jane", "confidence": 0.95, "subject": "Acme", "relation": "CEO", "object": "Jane", "ground": true, "premises_referred": [], "valid_from": null, "valid_until": null},
   {"proposition": "Jane was appointed in January 2024", "confidence": 0.9, "subject": "Jane", "relation": "appointed", "object": "January 2024", "ground": true, "premises_referred": [], "valid_from": 1704067200.0, "valid_until": null},
   {"proposition": "Revenue grew", "confidence": 0.85, "subject": "Revenue", "relation": "grew", "object": null, "ground": true, "premises_referred": [], "valid_from": null, "valid_until": null},
   {"proposition": "Sales increased", "confidence": 0.85, "subject": "Sales", "relation": "increased", "object": null, "ground": true, "premises_referred": [], "valid_from": null, "valid_until": null}
-]"""
+]}"""
 
     def __init__(
         self,
