@@ -3,11 +3,10 @@
 Wraps document insertion so updated document chunks automatically
 retract outdated ones based on document metadata timestamps.
 
-NOTE: This is a standalone helper that accepts plain dicts
-({"doc_id", "text", "timestamp"}). It is NOT a subclass of
-llama_index BaseDocumentStore and does not accept Document/BaseNode
-objects. Use it directly for truth-maintained document state
-alongside LlamaIndex.
+When llama_index is installed, subclasses
+llama_index.core.storage.docstore.BaseDocumentStore and accepts
+Document/BaseNode objects. Without llama_index, falls back to a
+standalone helper accepting plain dicts.
 
 When a document with the same doc_id is re-inserted with a newer
 timestamp, the old chunks are retracted (superseded) rather than
@@ -36,8 +35,18 @@ from typing import Any
 
 from ..store import BeliefStore
 
+# Try to subclass the real BaseDocumentStore when available.
+try:
+    from llama_index.core.storage.docstore import (
+        BaseDocumentStore as _LIDocStore,
+    )
+    _HAS_LLAMAINDEX = True
+except ImportError:
+    _LIDocStore = object  # type: ignore[assignment,misc]
+    _HAS_LLAMAINDEX = False
 
-class VeritasDocumentStore:
+
+class VeritasDocumentStore(_LIDocStore):  # type: ignore[misc]
     """Veritas-backed document store for LlamaIndex.
 
     Each document chunk becomes a belief. Re-inserting a doc_id with
