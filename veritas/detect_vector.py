@@ -158,6 +158,13 @@ class VectorPrefilterDetector:
         # Temporal filter: the base detector does not check validity
         # intervals; without this, non-overlapping claims (e.g., "was CEO
         # in 2020" vs "is CEO in 2026") would be flagged as contradictions.
-        return [c for c in candidates
-                if belief.temporally_overlaps(c)
-                and self.base.contradicts(belief, c)]
+        # Commutativity: check both directions (base may not be symmetric).
+        # Sorted by ID for deterministic ordering (matches store contract).
+        result = [
+            c for c in candidates
+            if belief.temporally_overlaps(c)
+            and (self.base.contradicts(belief, c)
+                 or self.base.contradicts(c, belief))
+        ]
+        result.sort(key=lambda b: b.id)
+        return result
