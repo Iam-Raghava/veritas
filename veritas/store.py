@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import hashlib
 import threading
 from typing import Any, Callable
 
@@ -147,6 +148,9 @@ class BeliefStore:
         self._by_functional: dict[tuple[str, str], set[str]] = {}
         self._by_subj_obj: dict[tuple[str, str], set[str]] = {}
         self._contradicts_rev: dict[str, set[str]] = {}
+        # Reverse dependency index: premise_id -> {dependent_ids}.
+        # Makes cascade lookup O(1) per node instead of O(N) scan.
+        self._dependents_by_premise: dict[str, set[str]] = {}
         # Bulk-load flag: set by persist.load() to suppress per-belief
         # re-derivation during restore (declared here for mypy).
         self._bulk_loading: bool = False
@@ -183,6 +187,24 @@ class BeliefStore:
                 setattr(self.metrics, name,
                         getattr(self.metrics, name, 0) + amount)
 
+    def _ent_sort_key(self, belief: Belief) -> tuple:
+        """Deterministic sort key for entrenchment ordering.
+
+        Ties break by (-timestamp, sha256(proposition), id):
+        - Older beliefs sort first (incumbent wins ties in weakest-first
+          order, i.e., the newcomer is retracted first on ties).
+        - SHA-256 (not Python's hash()) for cross-process determinism.
+        - ID as final tie-breaker (only if timestamps AND propositions
+          are identical, which is vanishingly rare).
+        Using raw UUIDs for ties would make retraction order depend on
+        cryptographically random IDs — different processes running the
+        same assertions would retract different beliefs!
+        """
+        ts = belief.timestamp if belief.timestamp is not None else 0.0
+        digest = hashlib.sha256(belief.proposition.encode("utf-8")).digest()
+        ph = int.from_bytes(digest[:8], "big")
+        return (self.entrenchment_of(belief), -ts, ph, belief.id)
+
     @property
     def generation(self) -> int:
         """Monotonic counter bumped on every graph mutation.
@@ -205,6 +227,11 @@ class BeliefStore:
             new._audit = copy.deepcopy(self._audit, memo)
             new.contradiction_fn = self.contradiction_fn
             new.detector_name = self.detector_name
+            # Detector: share the reference (detectors are stateless or
+            # read-only after construction; deepcopying ML models is
+            # wasteful and may fail). The copy's contradiction_fn is
+            # already set above.
+            new.detector = self.detector
             new._indexed = self._indexed
             new.entrenchment_weights = copy.deepcopy(
                 self.entrenchment_weights, memo)
@@ -212,6 +239,8 @@ class BeliefStore:
             new._by_functional = copy.deepcopy(self._by_functional, memo)
             new._by_subj_obj = copy.deepcopy(self._by_subj_obj, memo)
             new._contradicts_rev = copy.deepcopy(self._contradicts_rev, memo)
+            new._dependents_by_premise = copy.deepcopy(
+                self._dependents_by_premise, memo)
             # Subscribers and constraints are callables bound to the
             # original owner's context; do not copy them into the new store.
             new._subscribers = {}
@@ -344,7 +373,19 @@ class BeliefStore:
                 b, self.entrenchment_weights, n_justifications=n_sets)
             if valid_sets:
                 best_set_strength = float("-inf")
+                from .detect import _norm as _canon_prop
+                b_canon = _canon_prop(b.proposition)
                 for jset in valid_sets:
+                    # Corroboration exemption: a singleton set pointing to
+                    # a belief with the SAME proposition is independent
+                    # confirmation, not a derivation. It boosts n_sets
+                    # (counted above) but is NOT subject to the EE2 cap —
+                    # otherwise corroboration could never raise the score.
+                    if (len(jset) == 1):
+                        prem = self._beliefs.get(jset[0])
+                        if (prem is not None
+                                and _canon_prop(prem.proposition) == b_canon):
+                            continue
                     set_min = float("inf")
                     for pid in jset:
                         if pid in capped:
@@ -485,7 +526,8 @@ class BeliefStore:
         candidate_ids.update(self._contradicts_rev.get(belief.id, set()))
         candidate_ids.discard(belief.id)
         result = []
-        for cid in candidate_ids:
+        # Sorted for deterministic iteration across hash seeds.
+        for cid in sorted(candidate_ids):
             other = self._beliefs.get(cid)
             if other is not None and other.is_active and self.contradiction_fn(
                 belief, other
@@ -581,9 +623,12 @@ class BeliefStore:
 
     def _dependents_of_locked(self, belief_id: str) -> list[Belief]:
         """LIVE dependents. Internal use only (cascade mutates them)."""
+        # O(1) via reverse dependency index (vs O(N) full scan).
+        # Sorted for deterministic order across hash seeds.
+        dep_ids = self._dependents_by_premise.get(belief_id, set())
         return [
-            b for b in self._beliefs.values()
-            if b.is_active and belief_id in b.all_premise_ids
+            self._beliefs[did] for did in sorted(dep_ids)
+            if did in self._beliefs and self._beliefs[did].is_active
         ]
 
     def dependents_of(self, belief_id: str) -> list[Belief]:
@@ -628,18 +673,28 @@ class BeliefStore:
         # if needed.)
         import asyncio
         import inspect
+        # Main event loop (set by AsyncBeliefStore): used to schedule
+        # async callbacks from worker threads without creating a second
+        # loop (which breaks callbacks bound to the main loop).
+        main_loop = getattr(self, "_async_main_loop", None)
         for cb in self._subscribers.pop(belief_id, []):
             try:
                 if inspect.iscoroutinefunction(cb):
-                    # Async callback: schedule it if we're in an event loop,
-                    # otherwise run it to completion in a new loop.
                     try:
                         loop = asyncio.get_running_loop()
                     except RuntimeError:
                         loop = None
                     if loop is not None:
+                        # We're in the event loop thread: schedule directly.
                         loop.create_task(cb(belief_id, event_type))
+                    elif (main_loop is not None
+                            and main_loop.is_running()):
+                        # Worker thread: schedule on the main loop.
+                        asyncio.run_coroutine_threadsafe(
+                            cb(belief_id, event_type), main_loop)
                     else:
+                        # No loop available: run to completion in a new
+                        # loop (sync context, no AsyncBeliefStore).
                         asyncio.run(cb(belief_id, event_type))
                 else:
                     cb(belief_id, event_type)
@@ -945,7 +1000,7 @@ class BeliefStore:
             newcomer_ts = self._beliefs[newcomer_id].timestamp
         ordered = sorted(
             to_retract,
-            key=lambda bid: (self.entrenchment_of(self._beliefs[bid]), bid),
+            key=lambda bid: self._ent_sort_key(self._beliefs[bid]),
         )
         retracted: list[Belief] = []
         for bid in ordered:
@@ -1016,6 +1071,26 @@ class BeliefStore:
                 valid_justs.append(jset)
             else:
                 pruned_justs.extend(jset)
+
+        # Corroboration: if an ACTIVE belief with the same normalized
+        # proposition already exists, link to it. Independent sources
+        # asserting the same claim boost each other's corroboration
+        # (via n_justifications) instead of being isolated beliefs that
+        # a single slightly-stronger contradictor can wipe out one by one.
+        # (Same proposition cannot contradict itself; skip if the caller
+        # already justified via this belief.)
+        from .detect import _norm as _canon
+        canon_prop = _canon(proposition)
+        # Sort by ID for deterministic selection across hash seeds.
+        for existing in sorted(self._beliefs.values(), key=lambda b: b.id):
+            if (existing.is_active and _canon(existing.proposition) == canon_prop
+                    and existing.id not in valid_justs
+                    and all(existing.id not in js for js in valid_justs)):
+                # Add as a separate AND-set (OR across sets): the new
+                # belief is corroborated by the existing one, but doesn't
+                # require it (independent source).
+                valid_justs.append([existing.id])
+                break  # One link suffices; transitivity handles the rest.
 
         new = Belief(
             proposition=proposition,
@@ -1186,7 +1261,7 @@ class BeliefStore:
         # high raw confidence but a weak premise must sort as weak.
         weakest_first = sorted(
             contradictors,
-            key=lambda b: (self.entrenchment_of(b), b.id),
+            key=self._ent_sort_key,
         )
         unbeatable = [
             b for b in weakest_first if self.entrenchment_of(b) >= new_ent
@@ -1635,6 +1710,9 @@ class BeliefStore:
             self._by_subj_obj.setdefault(sp, set()).add(belief.id)
         for cid in belief.metadata.get("contradicts", []) or []:
             self._contradicts_rev.setdefault(cid, set()).add(belief.id)
+        # Reverse dependency index for O(1) cascade lookup.
+        for pid in belief.all_premise_ids:
+            self._dependents_by_premise.setdefault(pid, set()).add(belief.id)
 
     def _unindex(self, belief: Belief) -> None:
         fp = functional_parts(belief.proposition)
@@ -1645,6 +1723,8 @@ class BeliefStore:
             self._by_subj_obj.get(sp, set()).discard(belief.id)
         for cid in belief.metadata.get("contradicts", []) or []:
             self._contradicts_rev.get(cid, set()).discard(belief.id)
+        for pid in belief.all_premise_ids:
+            self._dependents_by_premise.get(pid, set()).discard(belief.id)
 
     # ------------------------------------------------------------------
     # Internals
@@ -1679,7 +1759,9 @@ class BeliefStore:
         current active contradictors, or stay retracted.
         """
         # Find retracted beliefs that depend on this premise.
-        for b in self._beliefs.values():
+        # Sorted by ID for deterministic re-derivation order across
+        # hash seeds.
+        for b in sorted(self._beliefs.values(), key=lambda x: x.id):
             if b.is_active:
                 continue
             if not b.justifications:
