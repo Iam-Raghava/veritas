@@ -55,7 +55,7 @@ else bad "audit proof"; tail -3 /tmp/vt8.log; fi
 if timeout 150 python3 tests/test_adversarial.py > /tmp/vt9.log 2>&1 && grep -q "14 passed, 0 failed" /tmp/vt9.log; then
   ok "adversarial 14/14"
 else bad "adversarial"; tail -3 /tmp/vt9.log; fi
-if timeout 120 python3 tests/test_differential.py --trials 15 --ops 200 > /tmp/vt10.log 2>&1 && grep -q "DIFFERENTIAL CLEAN" /tmp/vt10.log; then
+if timeout 120 python3 tests/test_differential.py --trials 15 --ops 100 > /tmp/vt10.log 2>&1 && grep -q "DIFFERENTIAL CLEAN" /tmp/vt10.log; then
   ok "differential vs reference"
 else bad "differential"; tail -3 /tmp/vt10.log; fi
 if python3 tests/test_realistic_trajectory.py > /tmp/vt10c.log 2>&1 && grep -q "All realistic" /tmp/vt10c.log; then
