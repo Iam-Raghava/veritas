@@ -69,6 +69,8 @@ class LLMJudgeDetector:
             self._judge = judge_fn
         elif api_key is not None:
             self._judge = self._make_api_judge(api_key, model, api_base)
+            # Stored for contradicts_batch (single-prompt adjudication).
+            self._api_params = (api_key, model, api_base)
         else:
             raise ValueError("Provide judge_fn or api_key")
         self.model = model
@@ -131,3 +133,74 @@ class LLMJudgeDetector:
         if pa == pb:
             return False
         return self._judge(pa, pb)
+
+    def contradicts_batch(
+        self, belief: Belief, candidates: list[Belief]
+    ) -> list[Belief]:
+        """Batched LLM adjudication: one prompt for all K candidates.
+
+        Instead of K sequential API calls, we send all candidate
+        propositions in a single prompt and ask the LLM to return the
+        subset that contradict the new claim. ~20x cheaper and faster.
+
+        Falls back to sequential on parse failure.
+        """
+        cands = [c for c in candidates if c.id != belief.id]
+        if not cands:
+            return []
+        # If using a custom judge_fn (not API), fall back to sequential
+        # — we can't batch an opaque callable.
+        if not hasattr(self, "model"):
+            return [c for c in cands if self.contradicts(belief, c)]
+        numbered = "\n".join(
+            f"{i}. {c.proposition}" for i, c in enumerate(cands)
+        )
+        prompt = (
+            "Does the NEW statement contradict each CANDIDATE?\n\n"
+            f"NEW: {belief.proposition}\n\n"
+            f"CANDIDATES:\n{numbered}\n\n"
+            "Consider direct logical contradiction, temporal scope, and "
+            "semantic opposition.\n\n"
+            'Reply with ONLY a JSON object: {"contradicts": [0, 2, ...]} '
+            "listing the CANDIDATE numbers that contradict NEW."
+        )
+        try:
+            # Reuse the API judge machinery via a synthetic call.
+            import json as _json
+            import urllib.request as _urlreq
+
+            # We need api access; reconstruct from _judge closure is not
+            # possible, so fall back to sequential if no API judge.
+            # (API judges set self._api_params.)
+            params = getattr(self, "_api_params", None)
+            if params is None:
+                return [c for c in cands if self.contradicts(belief, c)]
+            api_key, model, api_base = params
+            data = _json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+                "max_tokens": 500,
+            }).encode()
+            req = _urlreq.Request(
+                f"{api_base}/chat/completions",
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            with _urlreq.urlopen(req, timeout=60) as resp:
+                result = _json.loads(resp.read())
+                text = result["choices"][0]["message"]["content"]
+                import re as _re
+                clean = _re.sub(
+                    r"^```(?:json)?\s*|\s*```$", "",
+                    text.strip(), flags=_re.MULTILINE,
+                ).strip()
+                parsed = _json.loads(clean)
+                indices = parsed.get("contradicts", [])
+                return [cands[i] for i in indices
+                        if 0 <= i < len(cands)]
+        except Exception:
+            return [c for c in cands if self.contradicts(belief, c)]
