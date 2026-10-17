@@ -77,8 +77,18 @@ def as_function(detector: Detector | ContradictionFn) -> ContradictionFn:
 _SPOSSESSIVE = re.compile(
     r"^\s*(?P<subj>.+?)'s\s+(?P<rel>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE
 )
-_SPLAIN = re.compile(
-    r"^\s*(?P<subj>.+?)\s+(?P<rel>CEO|ceo|headquarters|founder|capital|population|subscription|status|plan|tier|owner|manager|lead)\s+is\s+(?P<obj>.+?)\s*$",
+# _SPLAIN is built dynamically from FUNCTIONAL_RELATIONS below (after
+# the frozenset is defined). See _build_splain().
+_SPLAIN = None  # type: ignore[assignment]
+
+# Location patterns: "X is in Y", "X is located in Y", "X moved to Y".
+# These are functional (a server has one location at a time).
+_LOCATION_IN = re.compile(
+    r"^\s*(?P<subj>.+?)\s+is\s+(?:located\s+)?in\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+_MOVED_TO = re.compile(
+    r"^\s*(?P<subj>.+?)\s+moved\s+to\s+(?P<obj>.+?)\s*$",
     re.IGNORECASE,
 )
 _SIS = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
@@ -123,6 +133,16 @@ def functional_parts(proposition: str) -> tuple[str, str, str] | None:
         subj = canon_entity(_norm(m.group("subj")))
         rel = canon_relation(_norm(m.group("rel")))
         return subj, rel, obj
+    # Location patterns: "X is in Y", "X is located in Y", "X moved to Y".
+    # These are functional (location is single-valued at a time).
+    m_loc = _LOCATION_IN.match(proposition) or _MOVED_TO.match(proposition)
+    if m_loc:
+        obj = _norm(m_loc.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        subj = canon_entity(_norm(m_loc.group("subj")))
+        # Canonical relation for location.
+        return subj, "location", obj
     return None
 
 
@@ -183,6 +203,25 @@ FUNCTIONAL_RELATIONS = frozenset({
     "manager", "lead",  # primary manager/lead (matches _SPLAIN regex)
     "target", "destination", "deployment target",  # single active target
 })
+
+
+def _build_splain() -> "re.Pattern":
+    """Build _SPLAIN regex dynamically from FUNCTIONAL_RELATIONS.
+
+    Sorts longest-first so multi-word relations ("chief executive officer")
+    match before their prefixes. Uses re.escape for safety.
+    """
+    import re
+    # Sort by length descending, then alphabetically for determinism.
+    sorted_rels = sorted(FUNCTIONAL_RELATIONS, key=lambda r: (-len(r), r))
+    alternation = "|".join(re.escape(r) for r in sorted_rels)
+    return re.compile(
+        rf"^\s*(?P<subj>.+?)\s+(?P<rel>{alternation})\s+is\s+(?P<obj>.+?)\s*$",
+        re.IGNORECASE,
+    )
+
+
+_SPLAIN = _build_splain()
 
 def heuristic_contradiction(
     a: Belief,
