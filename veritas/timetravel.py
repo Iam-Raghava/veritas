@@ -71,6 +71,15 @@ class TimeTravel:
                     b = Belief.from_dict(snap)
                     b.status = "active"
                     active[event.belief_id] = b
+            elif event.event_type == "reactivated":
+                # Reactivation (reuse_retracted_id): a retracted belief was
+                # re-asserted with the same ID. Mark active.
+                snap = event.details.get("belief_snapshot")
+                if snap:
+                    b = Belief.from_dict(snap)
+                    b.status = "active"
+                    active[event.belief_id] = b
+                # else: old event without snapshot; skip (cannot reconstruct)
         return list(active.values())
 
     def when_retracted(self, belief_id: str) -> float | None:
