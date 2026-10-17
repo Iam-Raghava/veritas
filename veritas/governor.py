@@ -195,18 +195,31 @@ class MemoryGovernor:
         ground: bool = True,
         **assert_kwargs,
     ) -> list[IngestedClaim]:
-        """Ingest pre-extracted claims (skips the extractor)."""
-        results: list[IngestedClaim] = []
-        for claim in claims:
-            results.append(
-                self._ingest_one(
-                    claim,
-                    source_reliability=source_reliability,
-                    ground=ground,
-                    **assert_kwargs,
-                )
+        """Ingest pre-extracted claims (skips the extractor).
+
+        Claims are ordered: ground claims (no premises_referred) are
+        asserted BEFORE derived claims (with premises_referred), so
+        intra-paragraph premises resolve to the newly created belief IDs.
+        E.g., "Revenue grew because sales increased": "Sales increased"
+        (ground) is asserted first, then "Revenue grew" (derived) can
+        link to it.
+        """
+        # Sort: ground first (no premises), then derived.
+        # Stable sort preserves original order within each group.
+        # Track original indices to return results in original order.
+        indexed = list(enumerate(claims))
+        indexed.sort(key=lambda pair: 1 if pair[1].premises_referred else 0)
+        ingested_by_idx: dict[int, IngestedClaim] = {}
+        for orig_idx, claim in indexed:
+            ingested = self._ingest_one(
+                claim,
+                source_reliability=source_reliability,
+                ground=ground,
+                **assert_kwargs,
             )
-        return results
+            ingested_by_idx[orig_idx] = ingested
+        # Return in original claim order.
+        return [ingested_by_idx[i] for i in range(len(claims))]
 
     # -- internals -------------------------------------------------------
 
