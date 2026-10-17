@@ -98,18 +98,50 @@ def _resolve_detector(name: str) -> ContradictionFn:
         fn = HuggingFaceNLIDetector().contradicts
         _BUILTIN_DETECTORS[name] = fn
         return fn
-    if name == "llm":
+    if name == "llm" or name == "llm_judge":
         from .detect_llm import LLMJudgeDetector
         # LLMJudgeDetector requires API config; can't auto-instantiate.
         # Caller must use register_detector().
         raise ValueError(
-            "detector 'llm' requires API configuration. "
+            f"detector '{name}' requires API configuration. "
             "Register it with register_detector() before loading."
         )
     raise ValueError(
         f"unknown detector '{name}'. Register it with register_detector() "
         f"before loading."
     )
+
+
+def _resolve_detector_obj(name: str):
+    """Resolve a detector name to a Detector instance (preferred).
+
+    Returns a Detector object with contradicts() and optionally
+    contradicts_batch() methods. Enables the batch adjudication path.
+    Returns None if the detector cannot be instantiated (e.g., missing
+    optional dependencies or API config).
+    """
+    if name == "heuristic":
+        from .detect import HeuristicDetector
+        return HeuristicDetector()
+    if name == "hybrid":
+        from .detect_hybrid import HybridDetector
+        return HybridDetector()
+    if name == "nli":
+        try:
+            from .detect_nli import HuggingFaceNLIDetector
+            return HuggingFaceNLIDetector()
+        except Exception:
+            return None
+    if name == "semantic":
+        try:
+            from .detect_semantic import SemanticDetector
+            return SemanticDetector()
+        except Exception:
+            return None
+    # llm/llm_judge requires API config; caller must register.
+    # Custom detectors registered via register_detector() are functions,
+    # not objects; they don't support batch.
+    return None
 
 
 def save(store: BeliefStore, path: str, detector_name: str | None = None) -> None:
@@ -256,13 +288,25 @@ def load(path: str) -> BeliefStore:
                 f"v{SCHEMA_VERSION}. Upgrade Veritas to read it."
             )
         detector_name = config.get("detector_name", "heuristic")
-        store = BeliefStore(
-            contradiction_fn=_resolve_detector(detector_name),
-            entrenchment_weights=config.get("entrenchment_weights"),
-            survival_threshold=config.get(
-                "survival_threshold", 0.5),
-            policy=config.get("policy", "entrenchment"),
-        )
+        # Prefer Detector objects (enables contradicts_batch); fall back to
+        # contradiction functions for custom/legacy detectors.
+        detector_obj = _resolve_detector_obj(detector_name)
+        if detector_obj is not None:
+            store = BeliefStore(
+                detector=detector_obj,
+                entrenchment_weights=config.get("entrenchment_weights"),
+                survival_threshold=config.get(
+                    "survival_threshold", 0.5),
+                policy=config.get("policy", "entrenchment"),
+            )
+        else:
+            store = BeliefStore(
+                contradiction_fn=_resolve_detector(detector_name),
+                entrenchment_weights=config.get("entrenchment_weights"),
+                survival_threshold=config.get(
+                    "survival_threshold", 0.5),
+                policy=config.get("policy", "entrenchment"),
+            )
         store.detector_name = detector_name
         # Restore store identity: a loaded store is the same logical store
         # as the one that was saved, so future saves are incremental.
