@@ -111,10 +111,14 @@ def _has_opposition(a: str, b: str) -> bool:
 
 
 _embedding_model = None  # lazy singleton
+_embedding_failed = False  # cached ImportError flag
 
 def _embedding_similarity(a: str, b: str) -> float | None:
     """Use sentence-transformers if available, else None."""
-    global _embedding_model
+    global _embedding_model, _embedding_failed
+    # Cached failure: don't retry the import on every call.
+    if _embedding_failed:
+        return None
     try:
         from sentence_transformers import SentenceTransformer
         if _embedding_model is None:
@@ -126,6 +130,7 @@ def _embedding_similarity(a: str, b: str) -> float | None:
         nb = math.sqrt(sum(x * x for x in eb))
         return dot / (na * nb) if na and nb else 0.0
     except ImportError:
+        _embedding_failed = True
         return None
 
 
