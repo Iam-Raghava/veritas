@@ -235,13 +235,18 @@ class DistributedBeliefStore:
             if self.log.needs_rebuild_on_sync:
                 return self._rebuild()
             events = self.log.read_since(self._seq)
-            # Deterministic clock: score using max event timestamp, not
-            # wall-clock. Identical logs => identical entrenchment =>
-            # identical winners, regardless of when the replay runs.
-            replay_now = self._replay_now(events)
+            # Deterministic clock: replay each event under its OWN timestamp,
+            # not the batch max. Using max timestamp for all events would
+            # retroactively shift recency scores when new events arrive
+            # later (e.g., a 60-day-old event replayed with "now" 60 days
+            # in the future changes past contraction winners).
             applied = 0
-            with fixed_now(replay_now):
-                for seq, event in events:
+            for seq, event in events:
+                event_ts = event.get("timestamp") if isinstance(event, dict) else None
+                if event_ts is None:
+                    # Fallback: use max timestamp if event has none.
+                    event_ts = self._replay_now(events)
+                with fixed_now(event_ts):
                     try:
                         self._apply(event)
                     except Exception:
@@ -268,16 +273,19 @@ class DistributedBeliefStore:
         logs where positional sequence numbers are not stable."""
         self.store = BeliefStore()
         events = self.log.read_since(0)
-        replay_now = self._replay_now(events)
-        with fixed_now(replay_now):
-            for seq, event in events:
+        # Per-event timestamps (see sync() above for rationale).
+        applied = 0
+        for seq, event in events:
+            event_ts = event.get("timestamp") if isinstance(event, dict) else None
+            if event_ts is None:
+                event_ts = self._replay_now(events)
+            with fixed_now(event_ts):
                 try:
                     self._apply(event)
                 except Exception:
-                    # Malformed event: skip, don't break rebuild.
                     pass
-        self._seq = len(events)
-        return len(events)
+                applied += 1
+        return applied
 
     def _apply(self, event: dict) -> None:
         etype = event["event_type"]
