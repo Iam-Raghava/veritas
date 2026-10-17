@@ -83,13 +83,23 @@ class TimeTravel:
         return list(active.values())
 
     def when_retracted(self, belief_id: str) -> float | None:
-        """Timestamp when a belief was retracted, if ever."""
+        """Timestamp when a belief was retracted, if ever.
+
+        Returns the LATEST retraction timestamp (not the first).
+        Cascade retractions with survived=True don't count (the belief
+        stayed active via alternative proof).
+        """
+        latest: float | None = None
         for event in self.store.audit:
-            if (event.belief_id == belief_id
-                    and event.event_type in ("retracted",
-                                             "cascade_retracted")):
-                return event.timestamp
-        return None
+            if event.belief_id != belief_id:
+                continue
+            if event.event_type == "retracted":
+                latest = event.timestamp
+            elif event.event_type == "cascade_retracted":
+                # Only count if actually retracted (not survived).
+                if not event.details.get("survived", False):
+                    latest = event.timestamp
+        return latest
 
     def history_of(self, proposition: str) -> list:
         """All events for a proposition, in order."""
