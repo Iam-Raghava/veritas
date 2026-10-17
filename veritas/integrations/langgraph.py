@@ -24,7 +24,11 @@ from typing import Any
 
 from ..store import BeliefStore
 
-# Try to subclass the real BaseStore when langgraph is available.
+# Try to import the real BaseStore for type checking only.
+# We do NOT subclass it: BaseStore is an ABC with abstract methods (e.g.,
+# abatch); subclassing without implementing them crashes on instantiation
+# when langgraph is installed. VeritasMemoryStore is interface-compatible
+# (implements the methods LangGraph actually calls) but standalone.
 try:
     from langgraph.store.base import BaseStore as _LGBaseStore
     _HAS_LANGGRAPH = True
@@ -33,7 +37,7 @@ except ImportError:
     _HAS_LANGGRAPH = False
 
 
-class VeritasMemoryStore(_LGBaseStore):  # type: ignore[misc]
+class VeritasMemoryStore:  # type: ignore[misc]
     """Veritas-backed key-value store for LangGraph.
 
     Truth-maintains cross-thread state: putting a value that contradicts
@@ -42,6 +46,9 @@ class VeritasMemoryStore(_LGBaseStore):  # type: ignore[misc]
 
     Namespace is a tuple (e.g., ("thread_1",)); key is a string.
     Values are dicts with at least a "proposition" key.
+
+    NOTE: Not a subclass of langgraph's BaseStore (see above).
+    Interface-compatible for the methods LangGraph calls.
     """
 
     def __init__(
@@ -101,6 +108,7 @@ class VeritasMemoryStore(_LGBaseStore):  # type: ignore[misc]
             # New belief accepted: retract the old one ONLY if the new
             # outranks it. A weaker update must not destroy a stronger
             # incumbent (no latest-wins).
+            should_index = True
             if old_id:
                 old_belief = self.store.get(old_id)
                 if old_belief and old_belief.is_active:
@@ -111,9 +119,14 @@ class VeritasMemoryStore(_LGBaseStore):  # type: ignore[misc]
                             old_id,
                             reason=f"superseded by state update at '{ns_key}'",
                         )
+                    else:
+                        # Old stays active and remains the indexed belief.
+                        # Do NOT overwrite _index with the weaker belief.
+                        should_index = False
                     # Else: old stays active; new coexists (or was already
                     # handled by contradiction logic).
-            self._index[(namespace, key)] = belief.id
+            if should_index:
+                self._index[(namespace, key)] = belief.id
         # If belief is None (rejected), old_id remains in _index and the
         # old belief stays active. No data loss.
 
