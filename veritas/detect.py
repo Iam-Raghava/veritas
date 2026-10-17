@@ -107,14 +107,22 @@ def functional_parts(proposition: str) -> tuple[str, str, str] | None:
     handled by the negation detector, not as positive functional
     assignments. Otherwise "CEO is Jane" vs "CEO is not Bob" would be
     falsely flagged as contradictory.
+
+    Subject and relation are canonicalized (via governor.canon_entity
+    and governor.canon_relation) so "Acme Corp's chief executive is Jane"
+    matches "Acme's CEO is John" in the O(1) heuristic index.
     """
+    # Local import to avoid circular dependency (governor imports detect).
+    from .governor import canon_entity, canon_relation
     m = _SPOSSESSIVE.match(proposition) or _SPLAIN.match(proposition)
     if m:
         obj = _norm(m.group("obj"))
         # Negated object: not a positive assignment.
         if obj.lower().startswith("not "):
             return None
-        return _norm(m.group("subj")), _norm(m.group("rel")), obj
+        subj = canon_entity(_norm(m.group("subj")))
+        rel = canon_relation(_norm(m.group("rel")))
+        return subj, rel, obj
     return None
 
 
