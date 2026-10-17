@@ -30,16 +30,16 @@ from .export import to_json, to_dot, to_graphml
 # This way `import veritas` never fails when cryptography is missing.
 def __getattr__(name: str):  # type: ignore[no-redef]
     if name == "ByzantineTolerantLog":
-        try:
-            from . import distributed_bft as _bft_module
-            return _bft_module.ByzantineTolerantLog
-        except ImportError as exc:
+        from . import distributed_bft as _bft_module
+        # distributed_bft catches ImportError internally and sets
+        # _CRYPTO_AVAILABLE = False; check the flag, not the import.
+        if not _bft_module._CRYPTO_AVAILABLE:
             raise AttributeError(
                 "ByzantineTolerantLog requires 'cryptography': "
                 "pip install veritas-tms[bft]"
-            ) from exc
+            )
+        return _bft_module.ByzantineTolerantLog
     raise AttributeError(f"module 'veritas' has no attribute {name!r}")
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 from .entrenchment import (
     corroboration_score,
     entrenchment,
@@ -74,7 +74,7 @@ from .explain import Explainer
 from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
-__version__ = "0.14.1"
+__version__ = "0.15.0"
 
 __all__ = [
     "Belief",
