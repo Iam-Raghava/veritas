@@ -1051,16 +1051,18 @@ class BeliefStore:
 
     def _simulate_constraint_contraction(
         self, newcomer_id: str | None
-    ) -> set[str] | None:
+    ) -> tuple[set[str], set[str]]:
         """Simulate constraint resolution WITHOUT mutating state.
 
-        Returns the set of belief IDs that would be retracted to satisfy
-        all constraints, or an empty set if no violations. Returns None
-        only if violations exist but cannot be resolved (should not happen
-        in practice; the real loop breaks in that case too).
+        Returns (primary_violators, all_to_retract):
+        - primary_violators: the weakest beliefs directly violating constraints
+        - all_to_retract: primary_violators + cascade dependents
 
-        This enables transactional semantics: if the newcomer is in the
-        retraction set, the caller rejects it WITHOUT touching incumbents.
+        This enables transactional semantics: if the newcomer is in
+        all_to_retract, the caller rejects it WITHOUT touching incumbents.
+        In Phase 2, only primary_violators are retracted directly;
+        dependents cascade via _retract_single(cascade=True) and are
+        logged as CASCADE_RETRACTED (not direct RETRACTED).
         """
         active = {bid for bid, b in self._beliefs.items() if b.is_active}
         # Entrenchment on current (unmutated) state; cache is valid.
@@ -1088,6 +1090,7 @@ class BeliefStore:
                     result[name] = [v for v in violated if v in sim_active]
             return result
 
+        primary_violators: set[str] = set()
         to_retract: set[str] = set()
         sim_active = set(active)
         for _ in range(len(sim_active) + 1):
@@ -1107,6 +1110,7 @@ class BeliefStore:
                 ph = int.from_bytes(digest[:8], "big")
                 return (ent[bid], -ts, ph, b.id)
             weakest = min(viol_ids, key=_sim_sort_key)
+            primary_violators.add(weakest)
             to_retract.add(weakest)
             sim_active.discard(weakest)
             # Simulate JTMS cascade: iteratively drop dependents whose
@@ -1127,7 +1131,7 @@ class BeliefStore:
                         to_retract.add(bid)
                         sim_active.discard(bid)
                         changed = True
-        return to_retract
+        return primary_violators, to_retract
 
     def _enforce_constraints_locked(
         self, newcomer_id: str | None
@@ -1147,29 +1151,30 @@ class BeliefStore:
             return []
 
         # Phase 1: simulate. No mutations.
-        to_retract = self._simulate_constraint_contraction(newcomer_id)
-        if not to_retract:
+        primary_violators, all_to_retract = self._simulate_constraint_contraction(
+            newcomer_id
+        )
+        if not all_to_retract:
             return []
-        if newcomer_id is not None and newcomer_id in to_retract:
-            self._audit.record(
-                REJECTED,
-                newcomer_id,
-                self._beliefs[newcomer_id].proposition
-                if newcomer_id in self._beliefs else "",
-                "rejected: constraint satisfaction requires retracting "
-                "the newcomer itself; incumbents untouched",
-                {"constraint_retracted": []},
-            )
+        if newcomer_id is not None and newcomer_id in all_to_retract:
+            # Newcomer must be retracted: return None WITHOUT recording
+            # audit here. The caller (assert_belief) records the single
+            # REJECTED event after cleaning up. (Previously this recorded
+            # a duplicate REJECTED here AND in the caller.)
             return None
 
         # Phase 2: perform retractions for real (newcomer survives).
-        # Retract in deterministic weakest-first order for audit clarity.
+        # Retract ONLY primary violators; dependents cascade via
+        # _retract_single(cascade=True) and are logged as CASCADE_RETRACTED.
+        # (Previously sorted all_to_retract by entrenchment, which put
+        # dependents before parents due to EE2 cap, logging them as direct
+        # RETRACTED instead of CASCADE_RETRACTED.)
         # Use the newcomer's timestamp for historical consistency.
         newcomer_ts = None
         if newcomer_id is not None and newcomer_id in self._beliefs:
             newcomer_ts = self._beliefs[newcomer_id].timestamp
         ordered = sorted(
-            to_retract,
+            primary_violators,
             key=lambda bid: self._ent_sort_key(self._beliefs[bid]),
         )
         retracted: list[Belief] = []
