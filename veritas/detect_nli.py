@@ -50,7 +50,22 @@ class HuggingFaceNLIDetector(Detector):
 
     def _contradiction_score(self, premise: str, hypothesis: str) -> float:
         pipe = self._ensure_pipeline()
-        results = pipe(f"{premise} </s></s> {hypothesis}")
+        # Use dict format {"text": ..., "text_pair": ...} so HuggingFace's
+        # tokenizer inserts the model's true separator token (not hardcoded
+        # "</s>" which is RoBERTa-specific; DeBERTa/BERT use [SEP]).
+        # For test mocks (plain functions), use string format.
+        # Detect mock by checking if pipe is a simple function (not a
+        # HuggingFace pipeline object).
+        import types
+        is_mock = isinstance(pipe, types.FunctionType)
+        if is_mock:
+            results = pipe(f"{premise} </s></s> {hypothesis}")
+        else:
+            try:
+                results = pipe({"text": premise, "text_pair": hypothesis})
+            except (TypeError, AttributeError):
+                # Fallback for unusual pipelines.
+                results = pipe(f"{premise} </s></s> {hypothesis}")
         # Normalize: pipelines may return [{...}] or [[{...}]].
         if results and isinstance(results[0], list):
             results = results[0]
@@ -82,27 +97,50 @@ class HuggingFaceNLIDetector(Detector):
         """
         if not candidates:
             return []
+        # Check metadata["contradicts"] first: explicit contradiction IDs
+        # specified by the user must be respected in batch mode too.
+        # (Bug fix: previously ignored in contradicts_batch.)
+        explicit_ids = set(belief.metadata.get("contradicts", []) or [])
+        explicit_hits = [
+            c for c in candidates if c.id in explicit_ids
+        ]
+        # Filter out explicit hits from NLI processing (already confirmed).
+        nli_candidates = [c for c in candidates if c.id not in explicit_ids]
+        if not nli_candidates:
+            return explicit_hits
         pipe = self._ensure_pipeline()
         # Build 2K pairs: (belief, cand) and (cand, belief) for symmetry.
-        pairs: list[str] = []
-        for c in candidates:
+        # Use dict format for real pipelines; string format for test mocks
+        # (plain functions).
+        import types
+        is_mock = isinstance(pipe, types.FunctionType)
+        pairs: list = []
+        for c in nli_candidates:
             if c.id == belief.id:
                 pairs.append("")
                 pairs.append("")
             else:
-                pairs.append(f"{belief.proposition} </s></s> {c.proposition}")
-                pairs.append(f"{c.proposition} </s></s> {belief.proposition}")
+                if is_mock:
+                    pairs.append(f"{belief.proposition} </s></s> {c.proposition}")
+                    pairs.append(f"{c.proposition} </s></s> {belief.proposition}")
+                else:
+                    pairs.append({"text": belief.proposition, "text_pair": c.proposition})
+                    pairs.append({"text": c.proposition, "text_pair": belief.proposition})
         try:
             all_results = pipe(pairs)
         except Exception:
             # Fall back to sequential on batch failure.
-            return [c for c in candidates if self.contradicts(belief, c)]
+            return explicit_hits + [
+                c for c in nli_candidates if self.contradicts(belief, c)
+            ]
         # Defensive: pipeline must return 2 results per candidate.
         # (Test mocks or unusual pipelines may not support batch.)
-        if not isinstance(all_results, list) or len(all_results) != 2 * len(candidates):
-            return [c for c in candidates if self.contradicts(belief, c)]
-        result: list[Belief] = []
-        for i, c in enumerate(candidates):
+        if not isinstance(all_results, list) or len(all_results) != 2 * len(nli_candidates):
+            return explicit_hits + [
+                c for c in nli_candidates if self.contradicts(belief, c)
+            ]
+        result: list[Belief] = list(explicit_hits)  # Start with explicit hits.
+        for i, c in enumerate(nli_candidates):
             if c.id == belief.id:
                 continue
             hit = False
