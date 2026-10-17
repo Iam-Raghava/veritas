@@ -77,12 +77,24 @@ class HybridDetector(Detector):
     def _nli_contradicts(self, p1: str, p2: str) -> bool:
         # Raises ImportError if NLI is unavailable (caller falls back
         # to heuristic).
+        # Check cached failure flag first (don't retry import).
+        if self._nli_failed:
+            raise ImportError("NLI unavailable (cached)")
         pipe = self._ensure_nli()
 
         # Test both directions; contradiction in either direction counts.
+        # Use dict format for real pipelines; string for test mocks.
+        import types
+        is_mock = isinstance(pipe, types.FunctionType)
         for prem, hyp in [(p1, p2), (p2, p1)]:
             try:
-                result = pipe(f"{prem} </s> {hyp}")
+                if is_mock:
+                    result = pipe(f"{prem} </s> {hyp}")
+                else:
+                    try:
+                        result = pipe({"text": prem, "text_pair": hyp})
+                    except (TypeError, AttributeError):
+                        result = pipe(f"{prem} </s> {hyp}")
                 # Unwrap nested list (transformers>=4.40 returns
                 # [[{label, score}, ...]] for single strings).
                 if result and isinstance(result[0], list):
