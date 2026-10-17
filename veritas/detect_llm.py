@@ -148,12 +148,24 @@ class LLMJudgeDetector:
         cands = [c for c in candidates if c.id != belief.id]
         if not cands:
             return []
+        # Check metadata["contradicts"] first: explicit IDs must be respected.
+        explicit_ids = set(belief.metadata.get("contradicts", []) or [])
+        explicit_hits = [c for c in cands if c.id in explicit_ids]
         # If using a custom judge_fn (not API), fall back to sequential
         # — we can't batch an opaque callable.
-        if not hasattr(self, "model"):
-            return [c for c in cands if self.contradicts(belief, c)]
+        # Check _api_params (not "model"): self.model is always set, even
+        # when judge_fn is passed, making hasattr(self, "model") dead code.
+        if not hasattr(self, "_api_params"):
+            return explicit_hits + [
+                c for c in cands if c.id not in explicit_ids
+                and self.contradicts(belief, c)
+            ]
+        # Filter out explicit hits from LLM processing.
+        llm_cands = [c for c in cands if c.id not in explicit_ids]
+        if not llm_cands:
+            return explicit_hits
         numbered = "\n".join(
-            f"{i}. {c.proposition}" for i, c in enumerate(cands)
+            f"{i}. {c.proposition}" for i, c in enumerate(llm_cands)
         )
         prompt = (
             "Does the NEW statement contradict each CANDIDATE?\n\n"
@@ -200,7 +212,10 @@ class LLMJudgeDetector:
                 ).strip()
                 parsed = _json.loads(clean)
                 indices = parsed.get("contradicts", [])
-                return [cands[i] for i in indices
-                        if 0 <= i < len(cands)]
+                llm_hits = [llm_cands[i] for i in indices
+                        if 0 <= i < len(llm_cands)]
+                return explicit_hits + llm_hits
         except Exception:
-            return [c for c in cands if self.contradicts(belief, c)]
+            return explicit_hits + [
+                c for c in llm_cands if self.contradicts(belief, c)
+            ]
