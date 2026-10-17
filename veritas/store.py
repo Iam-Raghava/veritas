@@ -152,6 +152,9 @@ class BeliefStore:
         # Reverse dependency index: premise_id -> {dependent_ids}.
         # Makes cascade lookup O(1) per node instead of O(N) scan.
         self._dependents_by_premise: dict[str, set[str]] = {}
+        # Proposition index: canonical proposition -> {belief_ids}.
+        # Makes corroboration lookup O(1) instead of O(N) scan per assert.
+        self._by_proposition: dict[str, set[str]] = {}
         # Bulk-load flag: set by persist.load() to suppress per-belief
         # re-derivation during restore (declared here for mypy).
         self._bulk_loading: bool = False
@@ -242,6 +245,8 @@ class BeliefStore:
             new._contradicts_rev = copy.deepcopy(self._contradicts_rev, memo)
             new._dependents_by_premise = copy.deepcopy(
                 self._dependents_by_premise, memo)
+            new._by_proposition = copy.deepcopy(
+                self._by_proposition, memo)
             # Subscribers and constraints are callables bound to the
             # original owner's context; do not copy them into the new store.
             new._subscribers = {}
@@ -376,17 +381,32 @@ class BeliefStore:
                 best_set_strength = float("-inf")
                 from .detect import _norm as _canon_prop
                 b_canon = _canon_prop(b.proposition)
+                # Track max corroborator strength for non-ground cap.
+                max_corroborator = float("-inf")
+                has_non_exempt = False
                 for jset in valid_sets:
                     # Corroboration exemption: a singleton set pointing to
                     # a belief with the SAME proposition is independent
                     # confirmation, not a derivation. It boosts n_sets
                     # (counted above) but is NOT subject to the EE2 cap —
                     # otherwise corroboration could never raise the score.
+                    # HOWEVER: for non-ground (derived) beliefs, an exempt
+                    # singleton is the ONLY warrant. Allowing the raw score
+                    # to stand uncapped violates EE2 (derived belief stronger
+                    # than its premise). Track the corroborator strength;
+                    # non-ground beliefs are capped by it below.
                     if (len(jset) == 1):
                         prem = self._beliefs.get(jset[0])
                         if (prem is not None
                                 and _canon_prop(prem.proposition) == b_canon):
+                            # Corroborator strength (capped value if available).
+                            corr_ent = capped.get(jset[0])
+                            if corr_ent is None:
+                                corr_ent = entrenchment(
+                                    prem, self.entrenchment_weights)
+                            max_corroborator = max(max_corroborator, corr_ent)
                             continue
+                    has_non_exempt = True
                     set_min = float("inf")
                     for pid in jset:
                         if pid in capped:
@@ -402,6 +422,12 @@ class BeliefStore:
                         best_set_strength = max(best_set_strength, set_min)
                 if best_set_strength != float("-inf"):
                     score = min(score, best_set_strength)
+                elif not b.ground and max_corroborator != float("-inf"):
+                    # Non-ground belief with ONLY corroboration-exempt sets:
+                    # cap by the strongest corroborator. The exemption lets
+                    # corroboration boost via n_sets, but a derived belief
+                    # cannot exceed its premise's strength (EE2).
+                    score = min(score, max_corroborator)
             capped[bid] = score
         result = capped.get(belief.id, entrenchment(
             belief, self.entrenchment_weights,
@@ -909,9 +935,22 @@ class BeliefStore:
             # Find weakest by entrenchment. The newcomer is valued with the
             # caller-supplied EE2-capped entrenchment (same valuation the
             # real post-retraction enforcement uses).
+            # Tie-break deterministically via _ent_sort_key components
+            # (not raw UUID) for cross-process determinism.
             def _ent_for(bid: str) -> float:
                 return ent.get(bid, float('inf'))
-            weakest = min(viol_ids, key=lambda bid: (_ent_for(bid), bid))
+            def _sort_key_for(bid: str) -> tuple:
+                if bid == newcomer.id:
+                    b = newcomer
+                else:
+                    b = self._beliefs.get(bid)
+                    if b is None:
+                        return (float('inf'),)
+                # Use _ent_sort_key components but with the simulated ent value.
+                ts = b.timestamp if b.timestamp is not None else 0.0
+                digest = hashlib.sha256(b.proposition.encode("utf-8")).digest()
+                return (_ent_for(bid), -ts, digest, b.id)
+            weakest = min(viol_ids, key=_sort_key_for)
             to_retract.add(weakest)
             hypo.discard(weakest)
             if weakest == newcomer.id:
@@ -987,7 +1026,16 @@ class BeliefStore:
                 viol_ids.update(vids)
             if not viol_ids:
                 break
-            weakest = min(viol_ids, key=lambda bid: (ent[bid], bid))
+            # Deterministic tie-break (not raw UUID) for cross-process
+            # determinism. Uses simulated ent values with _ent_sort_key
+            # tie-breaker components.
+            def _sim_sort_key(bid: str) -> tuple:
+                b = self._beliefs[bid]
+                ts = b.timestamp if b.timestamp is not None else 0.0
+                digest = hashlib.sha256(b.proposition.encode("utf-8")).digest()
+                ph = int.from_bytes(digest[:8], "big")
+                return (ent[bid], -ts, ph, b.id)
+            weakest = min(viol_ids, key=_sim_sort_key)
             to_retract.add(weakest)
             sim_active.discard(weakest)
             # Simulate JTMS cascade: iteratively drop dependents whose
@@ -1794,6 +1842,10 @@ class BeliefStore:
         # Reverse dependency index for O(1) cascade lookup.
         for pid in belief.all_premise_ids:
             self._dependents_by_premise.setdefault(pid, set()).add(belief.id)
+        # Proposition index for O(1) corroboration lookup.
+        from .detect import _norm as _canon
+        canon = _canon(belief.proposition)
+        self._by_proposition.setdefault(canon, set()).add(belief.id)
 
     def _unindex(self, belief: Belief) -> None:
         fp = functional_parts(belief.proposition)
@@ -1806,6 +1858,9 @@ class BeliefStore:
             self._contradicts_rev.get(cid, set()).discard(belief.id)
         for pid in belief.all_premise_ids:
             self._dependents_by_premise.get(pid, set()).discard(belief.id)
+        from .detect import _norm as _canon
+        canon = _canon(belief.proposition)
+        self._by_proposition.get(canon, set()).discard(belief.id)
 
     # ------------------------------------------------------------------
     # Internals
