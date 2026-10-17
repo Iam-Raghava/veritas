@@ -441,13 +441,17 @@ class BeliefStore:
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
         """Snapshots of active beliefs contradicting `belief`."""
-        # Fast path: detectors with a batched implementation run OUTSIDE
-        # the global lock (they may do GPU inference or API calls).
-        # We snapshot candidates under lock, release, then adjudicate.
+        # Fast path: detectors with a batched implementation can adjudicate
+        # multiple candidates in one call (e.g., NLI batch inference).
+        # NOTE: The lock is held during batch_fn (assert_belief holds the
+        # RLock). The batching still helps (one NLI forward pass vs N),
+        # but it does NOT run lock-free. The original "outside the lock"
+        # design was not achieved — assert_belief's @_locked decorator
+        # holds the RLock for the entire assertion.
         det = getattr(self, "detector", None)
         batch_fn = getattr(det, "contradicts_batch", None)
         # Only use the batch path if the detector OVERRIDES the default
-        # (which just loops over contradicts — no benefit outside lock).
+        # (which just loops over contradicts — no benefit from batching).
         # getattr with default None handles detectors that don't define
         # contradicts_batch at all (e.g., HeuristicDetector).
         _default_batch = getattr(Detector, "contradicts_batch", None)
@@ -458,12 +462,23 @@ class BeliefStore:
             with self._lock:
                 candidates = self._candidate_snapshots_locked(belief)
             hits = batch_fn(belief, candidates)
-            # Filter to still-active (may have changed during batch).
+            # Filter to still-active AND temporally overlapping.
+            # (Batch detectors don't check temporal overlap; we must.)
             with self._lock:
                 active_ids = {b.id for b in self._beliefs.values()
                               if b.is_active}
-                return [b.snapshot() for b in hits
-                        if b.id in active_ids and b.id != belief.id]
+                result = []
+                for b in hits:
+                    if b.id not in active_ids or b.id == belief.id:
+                        continue
+                    # Temporal overlap check (bypassed by batch path).
+                    other = self._beliefs.get(b.id)
+                    if other is None:
+                        continue
+                    if not belief.temporally_overlaps(other):
+                        continue
+                    result.append(b.snapshot())
+                return result
         with self._lock:
             return [b.snapshot()
                     for b in self._contradictors_of_locked(belief)]
@@ -473,6 +488,7 @@ class BeliefStore:
 
         Uses the same index as _contradictors_of_locked but returns
         snapshots without running the detector. Caller must hold the lock.
+        Includes vector prefilter candidates when available.
         """
         if not self._indexed:
             return [b.snapshot() for b in self.active_beliefs()
@@ -487,6 +503,15 @@ class BeliefStore:
         for cid in belief.metadata.get("contradicts", []) or []:
             candidate_ids.add(cid)
         candidate_ids.update(self._contradicts_rev.get(belief.id, set()))
+        # Include vector prefilter candidates (top-K semantic similarity).
+        # (Bug fix: previously ignored, sending all N beliefs to batch.)
+        try:
+            vec_candidates = self._vector_candidates(belief)
+            if vec_candidates:
+                for vc in vec_candidates:
+                    candidate_ids.add(vc.id)
+        except Exception:
+            pass  # Vector prefilter optional; ignore failures.
         candidate_ids.discard(belief.id)
         result = []
         for cid in sorted(candidate_ids):
@@ -1181,6 +1206,26 @@ class BeliefStore:
         # already justified via this belief.)
         from .detect import _norm as _canon
         canon_prop = _canon(proposition)
+        # Find active beliefs with the same canonical proposition via the
+        # _by_proposition index. Each gets a singleton justification link,
+        # which the corroboration exemption in entrenchment_of treats as
+        # independent confirmation (boosts n_sets, exempt from EE2 cap for
+        # ground beliefs).
+        # Note: the new belief isn't in the store yet, so no self-match
+        # is possible here.
+        corroborator_ids = []
+        for bid in self._by_proposition.get(canon_prop, set()):
+            existing = self._beliefs.get(bid)
+            if existing is None or not existing.is_active:
+                continue
+            # Skip if already justified via this belief (avoid duplicates).
+            already_linked = any(bid in jset for jset in valid_justs)
+            if not already_linked:
+                corroborator_ids.append(bid)
+        # Add singleton justification sets for corroborators.
+        for cid in corroborator_ids:
+            valid_justs.append([cid])
+
         # STABLE IDENTITY (opt-in via reuse_retracted_id): if a RETRACTED
         # belief with the same canonical proposition exists, reactivate it
         # (preserving its ID) instead of creating a new belief. This ensures
@@ -1198,6 +1243,39 @@ class BeliefStore:
                     break
 
         was_reactivated = reactivated is not None
+        # Save original state for rollback if the reactivation is rejected.
+        # (Bug fix: previously the mutation happened before checks, leaving
+        # a rejected belief active in the store.)
+        _reactivation_backup = None
+        if reactivated is not None:
+            _reactivation_backup = {
+                "status": reactivated.status,
+                "timestamp": reactivated.timestamp,
+                "source_reliability": reactivated.source_reliability,
+                "confidence": reactivated.confidence,
+                "source": reactivated.source,
+                "justifications": copy.deepcopy(reactivated.justifications),
+                "metadata": copy.deepcopy(reactivated.metadata),
+            }
+
+        def _rollback_reactivation() -> None:
+            """Restore retracted state if reactivation is rejected."""
+            if _reactivation_backup is not None and reactivated is not None:
+                # Unindex first (it was indexed as active).
+                self._unindex(reactivated)
+                # Restore original fields.
+                reactivated.status = _reactivation_backup["status"]
+                reactivated.timestamp = _reactivation_backup["timestamp"]
+                reactivated.source_reliability = _reactivation_backup[
+                    "source_reliability"]
+                reactivated.confidence = _reactivation_backup["confidence"]
+                reactivated.source = _reactivation_backup["source"]
+                reactivated.justifications = _reactivation_backup[
+                    "justifications"]
+                reactivated.metadata = _reactivation_backup["metadata"]
+                # Note: do NOT re-index as retracted; retracted beliefs are
+                # unindexed (see _unindex on retract).
+
         if reactivated is not None:
             # Reactivate: update metadata, set active, then adjudicate.
             reactivated.status = "active"
@@ -1256,6 +1334,7 @@ class BeliefStore:
             )
             self._bump_metric("rejections")
             self._bump_metric("contradictions_found", len(contradictors))
+            _rollback_reactivation()
             return None
 
         if not contradictors:
@@ -1275,6 +1354,7 @@ class BeliefStore:
                      "pruned_justifications": pruned_justs},
                 )
                 self._bump_metric("rejections")
+                _rollback_reactivation()
                 return None
             self._store(new)
             # Enforce n-ary constraints (joint inconsistency).
@@ -1296,6 +1376,7 @@ class BeliefStore:
                     {"entrenchment": new_ent},
                 )
                 self._bump_metric("rejections")
+                _rollback_reactivation()
                 return None
             if not self._beliefs.get(new.id, new).is_active:
                 # Newcomer was retracted to satisfy a constraint.
@@ -1308,6 +1389,7 @@ class BeliefStore:
                     {"entrenchment": new_ent},
                 )
                 self._bump_metric("rejections")
+                _rollback_reactivation()
                 return None
             self._audit.record(
                 REACTIVATED if was_reactivated else ASSERTED,
@@ -1377,6 +1459,7 @@ class BeliefStore:
                 )
                 self._bump_metric("rejections")
                 self._bump_metric("contradictions_found", len(contradictors))
+                _rollback_reactivation()
                 return None
             # Strong newcomer: proceed to entrenchment comparison below
             # (will win, justifications already pruned).
@@ -1412,6 +1495,7 @@ class BeliefStore:
             )
             self._bump_metric("rejections")
             self._bump_metric("contradictions_found", len(contradictors))
+            _rollback_reactivation()
             return None
 
         self._bump_metric("contradictions_found", len(contradictors))
@@ -1439,6 +1523,7 @@ class BeliefStore:
                  "n_contradictors": len(contradictors)},
             )
             self._bump_metric("rejections")
+            _rollback_reactivation()
             return None
 
         # Contract weakest-first, with cascading propagation.
@@ -1491,6 +1576,7 @@ class BeliefStore:
                 {"entrenchment": new_ent},
             )
             self._bump_metric("rejections")
+            _rollback_reactivation()
             return None
         if not self._beliefs.get(new.id, new).is_active:
             self._audit.record(
@@ -1502,6 +1588,7 @@ class BeliefStore:
                 {"entrenchment": new_ent},
             )
             self._bump_metric("rejections")
+            _rollback_reactivation()
             return None
         self._audit.record(
             REACTIVATED if was_reactivated else ASSERTED,
@@ -1684,10 +1771,27 @@ class BeliefStore:
         if not b0.justifications:
             return False
 
-        # Bottom-up marking: start with active ground beliefs, iteratively
-        # add any belief with a fully-marked AND-set, until fixed point.
+        # Collect the ancestor subgraph of belief_id (only ancestors can
+        # contribute to its well-foundedness). This makes the marking loop
+        # O(|ancestors|) instead of O(N * D) over the entire store.
+        ancestors: dict[str, Belief] = {}
+        stack = [belief_id]
+        while stack:
+            curr = stack.pop()
+            if curr in ancestors:
+                continue
+            cb = self._beliefs.get(curr)
+            # Root exempt from active check; ancestors must be active
+            # (or be the root itself).
+            if cb is not None and (curr == belief_id or cb.is_active):
+                ancestors[curr] = cb
+                stack.extend(cb.all_premise_ids)
+
+        # Bottom-up marking: start with active ground beliefs in the
+        # ancestor subgraph, iteratively add any belief with a fully-marked
+        # AND-set, until fixed point.
         marked: set[str] = {
-            bid for bid, b in self._beliefs.items()
+            bid for bid, b in ancestors.items()
             if b.is_active and b.ground
         }
         # The root is exempt from the active check (see above), but its
@@ -1695,7 +1799,7 @@ class BeliefStore:
         changed = True
         while changed:
             changed = False
-            for bid, b in self._beliefs.items():
+            for bid, b in ancestors.items():
                 if bid in marked:
                     continue
                 # Root exempt from active check; others must be active.
