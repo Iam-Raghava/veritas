@@ -27,6 +27,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 ## What's new
 
+- **v0.15.0 — Deep audit fixes**: 8 critical bugs from line-by-line audit — MemoryGovernor false cascade (removed entity-based premise guessing), phantom corroboration code (now implemented), reactivation rollback on rejection, batch detector temporal/vector fixes, point-in-time temporal overlap, ancestor-only ground-path check, framework subclass crashes fixed, persist/timetravel glitches.
 - **v0.14.1 — Audit cleanup**: pyflakes clean across all files, mypy clean (31 files), docstring corrections, PEP 562 lazy import for BFT. No behavior changes.
 - **v0.14.0 — Byzantine tolerance**: `ByzantineTolerantLog` — Ed25519-signed events, equivocation detection with automatic blacklisting, author-only retraction. Honest nodes converge despite malicious nodes. `pip install veritas-tms[bft]`.
 - **v0.13.0 — P2P gossip**: `GossipEventLog` — every node keeps a full copy, no single point of failure, partition-tolerant with deterministic merge on heal. No Raft, no leader, no coordinator.
@@ -278,6 +279,12 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.15.0 — deep audit fixes:
+- 8 critical bugs fixed from line-by-line audit (see What's new above).
+- MemoryGovernor no longer guesses premises from shared entities.
+- Corroboration linking now implemented (was phantom code).
+- Reactivation safely rolls back on rejection.
 
 v0.14.1 — audit cleanup:
 - pyflakes clean across `veritas/`, `tests/`, `examples/`.
