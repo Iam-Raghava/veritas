@@ -48,7 +48,7 @@ class SQLiteBackend(PersistenceBackend):
         self.path = path
 
     def save(
-        self, store: BeliefStore, detector_name: str = "heuristic",
+        self, store: BeliefStore, detector_name: str | None = None,
     ) -> None:
         from veritas import persist
         persist.save(store, self.path, detector_name=detector_name)
