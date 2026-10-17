@@ -86,10 +86,11 @@ store.assert_belief("Server is in us-east-1",
 # Derived belief (depends on the above)
 infra = next(b for b in store.active_beliefs()
              if b.proposition == "Server is in us-east-1")
-store.assert_belief("Deploy to us-east-1",
+deploy = store.assert_belief("Deploy to us-east-1",
                     justifications=[infra.id],
                     source="deploy-planner",
                     source_reliability=0.7)
+deploy_belief_id = deploy.id if deploy else None
 
 # Weak contradiction: rejected, not stored
 result = store.assert_belief("Server is in us-west-2",
@@ -113,6 +114,8 @@ print(store.explain.why_retracted(deploy_belief_id))
 #  'Server moved to eu-west-1' (reliability 0.95 > 0.95, recency tiebreak)"
 
 # Time-travel: what did we believe last Tuesday?
+import time
+last_tuesday = time.time() - 7 * 24 * 3600  # One week ago.
 old_beliefs = store.timetravel.beliefs_at(last_tuesday)
 ```
 
