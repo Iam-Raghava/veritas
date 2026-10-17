@@ -59,7 +59,17 @@ if status_versions:
           f"(changelog has {status_versions[:3]}, code is {veritas.__version__})")
 
 # 2. Every __all__ export is importable and matches.
+# Note: ByzantineTolerantLog is conditionally available (requires
+# cryptography). Skip it if the dependency is missing.
+try:
+    import cryptography  # noqa: F401
+    _has_crypto = True
+except ImportError:
+    _has_crypto = False
+
 for name in veritas.__all__:
+    if name == "ByzantineTolerantLog" and not _has_crypto:
+        continue  # Conditionally available; skip when crypto missing.
     check(f"export veritas.{name} exists", hasattr(veritas, name))
 
 # 3. Test files named in the README table exist on disk.
