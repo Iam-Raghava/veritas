@@ -97,10 +97,17 @@ class HybridDetector(Detector):
         return False
 
     def _ensure_nli(self):
+        # Cached failure: don't retry the import on every call.
+        if self._nli_failed:
+            raise ImportError(
+                "HybridDetector NLI fallback requires "
+                "'pip install veritas-tms[nli]'"
+            )
         if self._nli_pipe is None:
             try:
                 from transformers import pipeline
             except ImportError as exc:
+                self._nli_failed = True
                 raise ImportError(
                     "HybridDetector NLI fallback requires "
                     "'pip install veritas-tms[nli]'"
