@@ -22,6 +22,26 @@ class Explainer:
     def __init__(self, store: BeliefStore) -> None:
         self.store = store
 
+    def why(self, belief_id: str) -> str:
+        """Explain the current status of a belief (generic entry point).
+
+        Dispatches to why_retracted, why_rejected, or describes the
+        active state, based on the belief's current status.
+        """
+        belief = self.store.get(belief_id)
+        if belief is None:
+            # Might be a retracted belief not in active index; check audit.
+            return self.why_retracted(belief_id)
+        if not belief.is_active:
+            return self.why_retracted(belief_id)
+        # Active: describe its warrant.
+        return (
+            f"Belief '{belief.proposition}' is ACTIVE. "
+            f"Entrenchment: {self.store.entrenchment_of(belief):.3f}. "
+            f"Justifications: {len(belief.justifications)} set(s). "
+            f"Ground: {belief.ground}."
+        )
+
     def why_retracted(self, belief_id: str) -> str:
         """Explain why a belief was retracted."""
         # Find retraction event in audit (direct or cascade).
