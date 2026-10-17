@@ -64,7 +64,10 @@ formal classical Truth Maintenance System at LLM–knowledge-graph scale."
 ## What Veritas does
 
 ```python
-store.assert_belief("Acme's CEO is Jane Smith",
+from veritas import BeliefStore
+store = BeliefStore()
+
+ceo = store.assert_belief("Acme's CEO is Jane Smith",
                     source="tech blog", source_reliability=0.65)
 store.assert_belief("Jane Smith founded Acme in 2020",
                     source="derived", source_reliability=0.4,
