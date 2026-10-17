@@ -35,7 +35,11 @@ from typing import Any
 
 from ..store import BeliefStore
 
-# Try to subclass the real BaseDocumentStore when available.
+# Try to import the real BaseDocumentStore for type checking only.
+# We do NOT subclass it: BaseDocumentStore is an ABC with ~10 abstract
+# methods; subclassing without implementing them crashes on instantiation
+# when llama_index is installed. VeritasDocumentStore is interface-compatible
+# (implements the methods LlamaIndex actually calls) but standalone.
 try:
     from llama_index.core.storage.docstore import (
         BaseDocumentStore as _LIDocStore,
@@ -46,13 +50,16 @@ except ImportError:
     _HAS_LLAMAINDEX = False
 
 
-class VeritasDocumentStore(_LIDocStore):  # type: ignore[misc]
+class VeritasDocumentStore:  # type: ignore[misc]
     """Veritas-backed document store for LlamaIndex.
 
     Each document chunk becomes a belief. Re-inserting a doc_id with
     a newer timestamp retracts the old chunks (temporal supersession).
     Contradictions between different doc_ids are adjudicated by
     entrenchment.
+
+    NOTE: Not a subclass of llama_index's BaseDocumentStore (see above).
+    Interface-compatible for the methods LlamaIndex calls.
     """
 
     def __init__(
