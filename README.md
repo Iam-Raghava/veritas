@@ -27,6 +27,7 @@ Veritas is the fourth way: **a deterministic epistemic engine**. Contradiction i
 
 ## What's new
 
+- **v0.16.0 — RAGS_2 audit (17 bugs)**: 6 new critical bugs — flagship ARTICLE_FRONTIER.md crash (location patterns added), duplicate REJECTED audit events, constraint retract order (primary violators only), dynamic _SPLAIN from all 37+ relations, NLI dict format + metadata contradicts, inf/-inf validation. Plus 11 from previous audit.
 - **v0.15.0 — Deep audit fixes**: 8 critical bugs from line-by-line audit — MemoryGovernor false cascade (removed entity-based premise guessing), phantom corroboration code (now implemented), reactivation rollback on rejection, batch detector temporal/vector fixes, point-in-time temporal overlap, ancestor-only ground-path check, framework subclass crashes fixed, persist/timetravel glitches.
 - **v0.14.1 — Audit cleanup**: pyflakes clean across all files, mypy clean (31 files), docstring corrections, PEP 562 lazy import for BFT. No behavior changes.
 - **v0.14.0 — Byzantine tolerance**: `ByzantineTolerantLog` — Ed25519-signed events, equivocation detection with automatic blacklisting, author-only retraction. Honest nodes converge despite malicious nodes. `pip install veritas-tms[bft]`.
@@ -279,6 +280,9 @@ automated entrenchment ordering.)
 4. **Weak claims can't corrupt strong memory.** A low-entrenchment newcomer contradicting a high-entrenchment incumbent is rejected, loudly.
 
 ## Status
+
+v0.16.0 — RAGS_2 audit (17 bugs):
+- 6 new critical bugs + 11 from previous audit (see What's new above).
 
 v0.15.0 — deep audit fixes:
 - 8 critical bugs fixed from line-by-line audit (see What's new above).
