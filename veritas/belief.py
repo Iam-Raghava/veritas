@@ -139,8 +139,12 @@ class Belief:
         for name, val in (("timestamp", self.timestamp),
                           ("valid_from", self.valid_from),
                           ("valid_until", self.valid_until)):
-            if val is not None and math.isnan(val):
-                raise ValueError(f"{name} must not be NaN")
+            # Reject NaN AND infinite values. None is the documented
+            # representation for unbounded validity; inf/-inf would
+            # create un-contradictable beliefs (inf < inf is False) and
+            # break entrenchment sorting (-inf/+inf in sort keys).
+            if val is not None and not math.isfinite(val):
+                raise ValueError(f"{name} must be finite (not NaN/inf)")
         if (self.valid_from is not None and self.valid_until is not None
                 and self.valid_from > self.valid_until):
             raise ValueError("valid_from cannot be greater than valid_until")
