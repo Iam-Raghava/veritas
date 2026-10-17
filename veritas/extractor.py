@@ -125,6 +125,40 @@ class HeuristicExtractor:
                 start=start,
                 end=end,
             ))
+        # Post-process: detect causal/inferential connectors and populate
+        # premises_referred. Patterns:
+        # - "X because Y" → X derived from Y
+        # - "Since Y, X" → X derived from Y
+        # - "Y, therefore X" → X derived from Y
+        # This allows MemoryGovernor to link justifications even without
+        # an LLM extractor.
+        import re
+        _BECAUSE_PAT = re.compile(
+            r"^(?P<conclusion>.+?)\s+because\s+(?P<premise>.+)$",
+            re.IGNORECASE,
+        )
+        _SINCE_PAT = re.compile(
+            r"^since\s+(?P<premise>.+?),\s*(?P<conclusion>.+)$",
+            re.IGNORECASE,
+        )
+        _THEREFORE_PAT = re.compile(
+            r"^(?P<premise>.+?),\s*therefore\s+(?P<conclusion>.+)$",
+            re.IGNORECASE,
+        )
+        for claim in claims:
+            sent = claim.proposition
+            premise = None
+            for pat in (_BECAUSE_PAT, _SINCE_PAT, _THEREFORE_PAT):
+                m = pat.match(sent)
+                if m:
+                    premise = m.group("premise").strip()
+                    break
+            if premise:
+                # This is a derived claim; link to the premise.
+                # The premise text will be resolved to a belief ID by
+                # MemoryGovernor._link_premises (substring match).
+                claim.premises_referred = [premise]
+                # ground stays False (already set above).
         return claims
 
     def extract_propositions(self, text: str) -> list[str]:
