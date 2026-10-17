@@ -236,6 +236,9 @@ class MemoryGovernor:
             valid_from=claim.valid_from,
             valid_until=claim.valid_until,
             metadata={"extracted": True, **assert_kwargs.pop("metadata", {})},
+            # Wire reactivation: if a retracted belief holds this proposition,
+            # reuse its ID so dependents revive via _try_rederive_dependents.
+            reuse_retracted_id=reactivated,
             **assert_kwargs,
         )
         return IngestedClaim(
@@ -254,11 +257,17 @@ class MemoryGovernor:
         3. Substring match (ref appears in proposition or vice versa).
         4. Entity overlap (shared canonical entities).
         Returns a list of belief IDs (may be empty).
+
+        IMPORTANT: Only links when claim.premises_referred is non-empty.
+        Sharing an entity ("Acme") is a candidate retrieval signal for
+        contradiction detection, NEVER a logical premise (justification).
+        Auto-linking by entity turns independent ground facts into fragile
+        derived chains that falsely cascade-retract.
         """
         if not claim.premises_referred:
-            # Also try SPO-based linking: if the claim has subject/relation,
-            # find beliefs about the same entity.
-            return self._link_by_entities(claim)
+            # No explicit premises: this is a ground fact. Do NOT guess
+            # justifications from shared entities.
+            return []
 
         linked: list[str] = []
         active = self.store.active_beliefs()
@@ -298,27 +307,6 @@ class MemoryGovernor:
             if best is not None and best_score >= 10:
                 if best.id not in linked:
                     linked.append(best.id)
-        return linked
-
-    def _link_by_entities(self, claim: ExtractedClaim) -> list[str]:
-        """Fallback premise linking via shared canonical entities.
-
-        Used when the extractor didn't populate premises_referred.
-        Finds active beliefs about the same entities as the claim.
-        """
-        claim_ents = entities_of(claim.proposition)
-        if not claim_ents:
-            return []
-        linked: list[str] = []
-        for b in self.store.active_beliefs():
-            # Don't link to itself (not yet in store, so no self-match).
-            if _norm(b.proposition) == _norm(claim.proposition):
-                continue
-            b_ents = entities_of(b.proposition)
-            if claim_ents & b_ents:
-                linked.append(b.id)
-                if len(linked) >= 3:  # Cap: avoid over-linking.
-                    break
         return linked
 
     def _check_reactivation(self, claim: ExtractedClaim) -> bool:
