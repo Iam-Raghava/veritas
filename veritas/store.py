@@ -290,6 +290,26 @@ class BeliefStore:
     def audit(self) -> AuditLog:
         return self._audit
 
+    @property
+    def explain(self):
+        """Explainer for natural-language belief explanations.
+
+        Usage: store.explain.why(belief_id),
+               store.explain.why_retracted(belief_id).
+        """
+        from .explain import Explainer
+        return Explainer(self)
+
+    @property
+    def timetravel(self):
+        """TimeTravel for historical belief state reconstruction.
+
+        Usage: store.timetravel.beliefs_at(timestamp),
+               store.timetravel.when_retracted(belief_id).
+        """
+        from .timetravel import TimeTravel
+        return TimeTravel(self)
+
     @_locked
     def entrenchment_of(self, belief: Belief) -> float:
         """Entrenchment with Horn-clause EE2 cap.
@@ -313,15 +333,20 @@ class BeliefStore:
         # Recency decays with wall-clock time, so we invalidate entries
         # older than RECENCY_CACHE_TTL even if the generation hasn't changed.
         import time
+        from .belief import _now_override
         cached = None
+        now_override_val = _now_override.get()
         if belief.id in self._beliefs:
             cached = self._ent_cache.get(belief.id)
         if cached is not None and cached[0] == self._ent_gen:
-            age = time.time() - cached[1]
-            if age < 3600:  # RECENCY_CACHE_TTL: 1 hour
-                if self.metrics is not None:
-                    self.metrics.incr("cache_hits")
-                return cached[2]
+            # Cache key includes _now_override: a score computed under
+            # fixed_now(t1) must not be returned for fixed_now(t2).
+            if cached[3] == now_override_val:
+                age = time.time() - cached[1]
+                if age < 3600:  # RECENCY_CACHE_TTL: 1 hour
+                    if self.metrics is not None:
+                        self.metrics.incr("cache_hits")
+                    return cached[2]
         if self.metrics is not None:
             self.metrics.incr("cache_misses")
 
@@ -433,10 +458,14 @@ class BeliefStore:
             belief, self.entrenchment_weights,
             n_justifications=len(belief.justifications)))
         # Cache for this generation (only if in store — see above).
-        # Tuple: (generation, wallclock_computed_at, value).
+        # Tuple: (generation, wallclock_computed_at, value, now_override).
+        # now_override is part of the key (see cache read above).
         if belief.id in self._beliefs:
             import time
-            self._ent_cache[belief.id] = (self._ent_gen, time.time(), result)
+            from .belief import _now_override
+            self._ent_cache[belief.id] = (
+                self._ent_gen, time.time(), result, _now_override.get()
+            )
         return result
 
     def contradictors_of(self, belief: Belief) -> list[Belief]:
@@ -902,10 +931,24 @@ class BeliefStore:
         """
         # Hypothetical active set: current active - contradictors + newcomer.
         # (Newcomer not yet in _beliefs, so we handle it specially.)
+        # IMPORTANT: Also remove cascade dependents of contradictors.
+        # Retracting a contradictor cascade-retracts its dependents; the
+        # simulation must reflect this, otherwise it thinks a constraint
+        # is still violated by a dependent that would actually be gone.
         sim_active = {
             bid for bid, b in self._beliefs.items()
             if b.is_active and bid not in contra_ids
         }
+        # Remove transitive dependents of contradictors (cascade).
+        to_remove = set(contra_ids)
+        queue = list(contra_ids)
+        while queue:
+            curr = queue.pop()
+            for dep_id in self._dependents_by_premise.get(curr, set()):
+                if dep_id in sim_active and dep_id not in to_remove:
+                    to_remove.add(dep_id)
+                    queue.append(dep_id)
+        sim_active -= to_remove
         # For entrenchment ordering, we need values for all in sim_active
         # plus the newcomer. Incumbents use current (unmutated) capped
         # values; the newcomer uses the caller-supplied capped value so
@@ -972,9 +1015,12 @@ class BeliefStore:
                     if b is None:
                         return (float('inf'),)
                 # Use _ent_sort_key components but with the simulated ent value.
+                # Digest as int (not raw bytes) for consistency with
+                # _ent_sort_key and _sim_sort_key.
                 ts = b.timestamp if b.timestamp is not None else 0.0
                 digest = hashlib.sha256(b.proposition.encode("utf-8")).digest()
-                return (_ent_for(bid), -ts, digest, b.id)
+                ph = int.from_bytes(digest[:8], "big")
+                return (_ent_for(bid), -ts, ph, b.id)
             weakest = min(viol_ids, key=_sort_key_for)
             to_retract.add(weakest)
             hypo.discard(weakest)
@@ -1357,6 +1403,18 @@ class BeliefStore:
                 _rollback_reactivation()
                 return None
             self._store(new)
+            # Reciprocal corroboration: existing beliefs with the same
+            # proposition link back to the new belief. This ensures
+            # mutual corroboration (both directions).
+            for cid in corroborator_ids:
+                existing = self._beliefs.get(cid)
+                if existing is not None and existing.is_active:
+                    # Avoid duplicate links.
+                    if not any(new.id in jset for jset in existing.justifications):
+                        existing.justifications.append([new.id])
+                        # Re-index not needed (justification change, not new belief).
+                        # Bump generation to invalidate entrenchment cache.
+                        self._ent_gen += 1
             # Enforce n-ary constraints (joint inconsistency).
             # Transactional: returns None if the newcomer must be rejected;
             # incumbents are untouched in that case.
@@ -1405,6 +1463,9 @@ class BeliefStore:
                 timestamp=new.timestamp,
             )
             self._bump_metric("assertions")
+            # TMS re-derivation AFTER audit record (see _store note).
+            if new.is_active and not self._bulk_loading:
+                self._try_rederive_dependents(new.id)
             return new.snapshot()
 
         # A belief cannot borrow entrenchment from beliefs its own
@@ -1557,6 +1618,17 @@ class BeliefStore:
         # doomed case earlier).
 
         self._store(new)
+        # Reciprocal corroboration: existing beliefs with the same
+        # proposition link back to the new belief. This ensures
+        # mutual corroboration (both directions).
+        for cid in corroborator_ids:
+            existing = self._beliefs.get(cid)
+            if existing is not None and existing.is_active:
+                # Avoid duplicate links.
+                if not any(new.id in jset for jset in existing.justifications):
+                    existing.justifications.append([new.id])
+                    # Bump generation to invalidate entrenchment cache.
+                    self._ent_gen += 1
         # Enforce n-ary constraints (joint inconsistency).
         # Transactional: returns None if the newcomer must be rejected;
         # incumbents are untouched in that case.
@@ -1606,6 +1678,9 @@ class BeliefStore:
             timestamp=new.timestamp,
         )
         self._bump_metric("assertions")
+        # TMS re-derivation AFTER audit record (see _store note).
+        if new.is_active and not self._bulk_loading:
+            self._try_rederive_dependents(new.id)
         return new.snapshot()
 
     @_locked
@@ -1976,15 +2051,11 @@ class BeliefStore:
             self._index(belief)
         # Graph mutated: bump entrenchment cache generation.
         self._ent_gen += 1
-        # TMS re-derivation: if this belief was retracted and is now
-        # re-asserted (or a new belief with the same ID pattern), check
-        # retracted dependents — their preserved justifications may now
-        # be satisfiable again.
-        # Skip during bulk load (persist.load sets _bulk_loading=True):
-        # re-derivation on every row is O(N^2). The loaded state is
-        # already consistent; no re-derivation needed.
-        if belief.is_active and not self._bulk_loading:
-            self._try_rederive_dependents(belief.id)
+        # NOTE: TMS re-derivation is NOT triggered here. The caller must
+        # call _try_rederive_dependents AFTER recording the ASSERTED/
+        # REACTIVATED audit event, otherwise "rederived" events appear
+        # before the premise's "asserted" event in the audit log.
+        # (See assert_belief callers.)
 
     def _try_rederive_dependents(self, belief_id: str) -> None:
         """Re-evaluate retracted dependents after a premise is (re-)asserted.
@@ -2054,35 +2125,37 @@ class BeliefStore:
                          "doomed": list(doomed)},
                     )
                     continue
-                # Outranks all and not doomed: check N-ary constraints
-                # HYPOTHETICALLY before retracting contradictors.
-                # Simulate: active - contradictors + B.
-                if self._constraints:
-                    contra_ids_sim = {c.id for c in contradictors}
-                    sim_beliefs = [
-                        bb.snapshot() for bid, bb in self._beliefs.items()
-                        if (bb.is_active and bid not in contra_ids_sim)
-                        or bid == b.id
-                    ]
-                    violated_ids: set[str] = set()
-                    for _name, _check in self._constraints.items():
-                        try:
-                            vids = _check(sim_beliefs)
-                            violated_ids.update(vids)
-                        except Exception:
-                            continue
-                    if b.id in violated_ids:
-                        # B would violate constraints; block WITHOUT
-                        # touching contradictors (transactional).
-                        self._audit.record(
-                            "rederived_blocked",
-                            b.id,
-                            b.proposition,
-                            "re-derivation blocked: N-ary constraint "
-                            "violation (contradictors untouched)",
-                            {"premise": belief_id},
-                        )
+            # CONSTRAINT CHECK (outside if contradictors:): N-ary constraints
+            # must hold even when there are no pairwise contradictors.
+            # A re-derived belief with no contradictors can still violate
+            # an active N-ary constraint!
+            if self._constraints:
+                contra_ids_sim = {c.id for c in contradictors} if contradictors else set()
+                sim_beliefs = [
+                    bb.snapshot() for bid, bb in self._beliefs.items()
+                    if (bb.is_active and bid not in contra_ids_sim)
+                    or bid == b.id
+                ]
+                violated_ids: set[str] = set()
+                for _name, _check in self._constraints.items():
+                    try:
+                        vids = _check(sim_beliefs)
+                        violated_ids.update(vids)
+                    except Exception:
                         continue
+                if b.id in violated_ids:
+                    # B would violate constraints; block WITHOUT
+                    # touching contradictors (transactional).
+                    self._audit.record(
+                        "rederived_blocked",
+                        b.id,
+                        b.proposition,
+                        "re-derivation blocked: N-ary constraint "
+                        "violation (contradictors untouched)",
+                        {"premise": belief_id},
+                    )
+                    continue
+            if contradictors:
                 # Constraints pass: retract the contradictors.
                 for c in contradictors:
                     self._retract_single(
