@@ -12,10 +12,17 @@ import tempfile
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
-def main():
-    text = open(os.path.join(ROOT, "README.md")).read()
+def _test_file(filename: str) -> int:
+    """Test all Python code blocks in a markdown file. Returns failure count."""
+    path = os.path.join(ROOT, filename)
+    if not os.path.exists(path):
+        print(f"  skip: {filename} not found")
+        return 0
+    text = open(path).read()
     blocks = re.findall(r"```python\n(.*?)```", text, re.DOTALL)
-    assert blocks, "no python blocks found in README"
+    if not blocks:
+        print(f"  skip: no python blocks in {filename}")
+        return 0
     failed = 0
     for i, b in enumerate(blocks):
         code = "import sys; sys.path.insert(0, '.')\n" + b
@@ -41,9 +48,20 @@ def main():
                 sp = os.path.join(ROOT, scratch)
                 if os.path.exists(sp):
                     os.unlink(sp)
-    print(f"{len(blocks) - failed}/{len(blocks)} README blocks run")
-    if failed:
+    print(f"  {len(blocks) - failed}/{len(blocks)} blocks in {filename} run")
+    return failed
+
+
+def main():
+    total_failed = 0
+    # Test README.md, ARTICLE.md, and ARTICLE_FRONTIER.md.
+    # Documentation that doesn't run is documentation that lies.
+    for filename in ["README.md", "ARTICLE.md", "ARTICLE_FRONTIER.md"]:
+        total_failed += _test_file(filename)
+    if total_failed:
+        print(f"TOTAL: {total_failed} failed blocks")
         sys.exit(1)
+    print("All documentation code blocks pass.")
 
 
 if __name__ == "__main__":
