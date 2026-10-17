@@ -172,6 +172,12 @@ class Belief:
         — this matches temporal-database convention (SQL:2011) and avoids
         false contradictions at handoff boundaries (e.g., "CEO until 2024"
         vs "CEO from 2024").
+
+        EXCEPTION: Point-in-time beliefs (valid_from == valid_until, e.g.,
+        an instantaneous event at t) use closed-point semantics: [t, t]
+        overlaps [t, t] and [t, t] overlaps any interval containing t.
+        Without this, a zero-width interval [t, t) = empty set can never
+        overlap anything, even another belief at the exact same timestamp.
         """
         # [a_from, a_until) overlaps [b_from, b_until) iff
         # a_from < b_until and b_from < a_until (None = infinity).
@@ -179,6 +185,10 @@ class Belief:
         a_until = self.valid_until if self.valid_until is not None else float("inf")
         b_from = other.valid_from if other.valid_from is not None else float("-inf")
         b_until = other.valid_until if other.valid_until is not None else float("inf")
+        # Point-in-time: if either interval has zero width, use <=
+        # (closed point semantics). Otherwise use strict < (half-open).
+        if a_from == a_until or b_from == b_until:
+            return a_from <= b_until and b_from <= a_until
         return a_from < b_until and b_from < a_until
 
     @property
