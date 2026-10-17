@@ -198,3 +198,12 @@ class VeritasMemoryStore:  # type: ignore[misc]
             else:
                 raise ValueError(f"unknown batch op: {kind}")
         return results
+
+    async def abatch(self, ops: list[tuple]) -> list[Any]:
+        """Async batch operations (for langgraph BaseStore compatibility).
+
+        Delegates to the synchronous batch() implementation. Since
+        VeritasMemoryStore is not a BaseStore subclass (see class docstring),
+        this is provided for interface compatibility only.
+        """
+        return self.batch(ops)
