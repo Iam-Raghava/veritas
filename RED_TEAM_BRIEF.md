@@ -72,7 +72,9 @@ Reconstructs belief state at any timestamp via audit replay. `when_retracted(bel
 SQLite backend. Round-trips: beliefs, audit log, config, **policy** (fixed — conservative stores were silently reloading as entrenchment), **detector name** (fixed). Temporal bounds (`valid_from`/`valid_until`) preserved (fixed — `snapshot()`, `to_dict()`, `from_dict()` were all dropping them).
 
 ### 2.10 Other modules
-- `veritas/calibration.py`: CalibrationTracker for detector confidence calibration. **Honestly unwired** — documented as manual wiring pattern, not automatic.
+- `veritas/calibration.py`: REMOVED in the 0.16.x cleanup — CalibrationTracker was 100% unwired (never called by the store); the manual-wiring pattern is documented in RED_TEAM_BRIEF history.
+- `veritas/persist_backend.py`: REMOVED in the 0.16.x cleanup — a 50-line wrapper around `persist.save`/`persist.load` with a single implementation; use `veritas.persist` directly.
+- `veritas/experimental/`: `distributed_gossip.py` (GossipEventLog) and `distributed_bft.py` (ByzantineTolerantLog) — functional but quarantined out of the core story; re-exported for compatibility (`veritas.GossipEventLog`, lazy `veritas.ByzantineTolerantLog`).
 - `veritas/export.py`: `to_json`, `to_dot` (Graphviz), `to_graphml` (Gephi/Cytoscape).
 - `veritas/async_store.py`: AsyncBeliefStore. Has `stats()` wrapper (added in audit).
 - `veritas/cli.py`: Full CLI (init/assert/retract/list/contradictions/audit/stats).
@@ -117,7 +119,7 @@ costs); everything else competition-specific is gone.
 
 1. **Deep-chain builds are O(N²)** (~12ms/assert at depth 5000). Acceptable for flat fact workloads, but a genuine algorithmic limit. No indexing on justification chains.
 2. **Heuristic detector misses paraphrases.** The default detector is keyword-based. NLI/LLM detectors exist but aren't the default (cost/latency).
-3. **CalibrationTracker is unwired.** Documented as manual pattern, not automatic. Detector confidence scores are uncalibrated.
+3. **CalibrationTracker removed (0.16.x cleanup).** It was 100% unwired; detector confidence scores remain uncalibrated by default.
 4. **No chunking for long Add items.** Long documents get truncated by the tokenizer. Each Add item is one belief.
 5. **Query expansion is TF-IDF-only.** Doesn't use embeddings for expansion terms. Could miss semantic expansions.
 6. **Reranker is EN/ZH bilingual**, not truly multilingual like BGE-M3. Other languages get weaker reranking.
