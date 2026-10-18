@@ -1,0 +1,11 @@
+# Veritas Product
+# Run: docker compose up
+# Then open http://localhost:8000
+
+services:
+  veritas:
+    build: ..
+    dockerfile: product/Dockerfile
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
