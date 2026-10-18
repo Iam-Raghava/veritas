@@ -77,18 +77,56 @@ def as_function(detector: Detector | ContradictionFn) -> ContradictionFn:
 _SPOSSESSIVE = re.compile(
     r"^\s*(?P<subj>.+?)'s\s+(?P<rel>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE
 )
+# Possessive adjectives: "My X is Y", "His X is Y", etc.
+_SPOSSESSIVE_ADJ = re.compile(
+    r"^\s*(?P<subj>my|his|her|their|our|your)\s+(?P<rel>.+?)\s+is\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
 # _SPLAIN is built dynamically from FUNCTIONAL_RELATIONS below (after
 # the frozenset is defined). See _build_splain().
 _SPLAIN = None  # type: ignore[assignment]
 
-# Location patterns: "X is in Y", "X is located in Y", "X moved to Y".
-# These are functional (a server has one location at a time).
+# Location patterns: "X is in Y", "X is located in Y", "X moved to Y",
+# "X lives in Y", "X is on Y" (streets), "X departs from Y".
+# These are functional (a subject has one location at a time).
 _LOCATION_IN = re.compile(
     r"^\s*(?P<subj>.+?)\s+is\s+(?:located\s+)?in\s+(?P<obj>.+?)\s*$",
     re.IGNORECASE,
 )
+_LIVE_IN = re.compile(
+    r"^\s*(?P<subj>.+?)\s+lives?\s+in\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+_IS_ON = re.compile(
+    r"^\s*(?P<subj>.+?)\s+is\s+on\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
 _MOVED_TO = re.compile(
     r"^\s*(?P<subj>.+?)\s+moved\s+to\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+_DEPARTS_FROM = re.compile(
+    r"^\s*(?P<subj>.+?)\s+departs?\s+from\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+# Occupation: "X works as Y" (functional: primary occupation).
+_WORKS_AS = re.compile(
+    r"^\s*(?P<subj>.+?)\s+works?\s+as\s+(?:an?\s+)?(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+# Temporal functional: "X starts at Y", "X begins at Y", "X opens at Y",
+# "X closes at Y". An event has one start/open time.
+_STARTS_AT = re.compile(
+    r"^\s*(?P<subj>.+?)\s+(?:starts?|begins?)\s+at\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+_OPENS_AT = re.compile(
+    r"^\s*(?P<subj>.+?)\s+(?:opens?|closes?)\s+at\s+(?P<obj>.+?)\s*$",
+    re.IGNORECASE,
+)
+# Location via parking: "X is parked in/on Y".
+_PARKED_IN = re.compile(
+    r"^\s*(?P<subj>.+?)\s+(?:is\s+)?parked\s+(?:in|on)\s+(?P<obj>.+?)\s*$",
     re.IGNORECASE,
 )
 _SIS = re.compile(r"^\s*(?P<subj>.+?)\s+is\s+(?P<obj>.+?)\s*$", re.IGNORECASE)
@@ -133,9 +171,16 @@ def functional_parts(proposition: str) -> tuple[str, str, str] | None:
         subj = canon_entity(_norm(m.group("subj")))
         rel = canon_relation(_norm(m.group("rel")))
         return subj, rel, obj
-    # Location patterns: "X is in Y", "X is located in Y", "X moved to Y".
+    # Location patterns: "X is in Y", "X lives in Y", "X is on Y",
+    # "X moved to Y", "X departs from Y".
     # These are functional (location is single-valued at a time).
-    m_loc = _LOCATION_IN.match(proposition) or _MOVED_TO.match(proposition)
+    m_loc = (
+        _LOCATION_IN.match(proposition)
+        or _LIVE_IN.match(proposition)
+        or _IS_ON.match(proposition)
+        or _MOVED_TO.match(proposition)
+        or _DEPARTS_FROM.match(proposition)
+    )
     if m_loc:
         obj = _norm(m_loc.group("obj"))
         if obj.lower().startswith("not "):
@@ -143,6 +188,52 @@ def functional_parts(proposition: str) -> tuple[str, str, str] | None:
         subj = canon_entity(_norm(m_loc.group("subj")))
         # Canonical relation for location.
         return subj, "location", obj
+    # Occupation: "X works as Y" -> (X, occupation, Y).
+    m_works = _WORKS_AS.match(proposition)
+    if m_works:
+        obj = _norm(m_works.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        subj = canon_entity(_norm(m_works.group("subj")))
+        return subj, "occupation", obj
+    # Temporal: "X starts/begins at Y" -> (X, start_time, Y).
+    m_starts = _STARTS_AT.match(proposition)
+    if m_starts:
+        obj = _norm(m_starts.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        subj = canon_entity(_norm(m_starts.group("subj")))
+        return subj, "start_time", obj
+    # Temporal: "X opens/closes at Y" -> (X, open_time/close_time, Y).
+    m_opens = _OPENS_AT.match(proposition)
+    if m_opens:
+        obj = _norm(m_opens.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        subj = canon_entity(_norm(m_opens.group("subj")))
+        # Distinguish open vs close by the verb.
+        verb = "open_time" if "open" in proposition.lower() else "close_time"
+        return subj, verb, obj
+    # Location: "X is parked in/on Y" -> (X, location, Y).
+    m_parked = _PARKED_IN.match(proposition)
+    if m_parked:
+        obj = _norm(m_parked.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        subj = canon_entity(_norm(m_parked.group("subj")))
+        return subj, "location", obj
+    # Possessive adjectives: "My X is Y", "His X is Y", "Her X is Y",
+    # "Their X is Y", "Our X is Y". Treat like "X's" possessive.
+    m_poss_adj = _SPOSSESSIVE_ADJ.match(proposition)
+    if m_poss_adj:
+        obj = _norm(m_poss_adj.group("obj"))
+        if obj.lower().startswith("not "):
+            return None
+        # "my" -> "speaker", "his"/"her" -> keep as is for matching.
+        subj_raw = _norm(m_poss_adj.group("subj"))
+        subj = canon_entity(subj_raw)
+        rel = canon_relation(_norm(m_poss_adj.group("rel")))
+        return subj, rel, obj
     return None
 
 
@@ -202,6 +293,11 @@ FUNCTIONAL_RELATIONS = frozenset({
     "owner",  # primary owner
     "manager", "lead",  # primary manager/lead (matches _SPLAIN regex)
     "target", "destination", "deployment target",  # single active target
+    "name",  # a subject has one name at a time
+    "color", "favorite color",  # single favorite
+    "personal best", "best time", "record",  # single best at a time
+    "deadline", "due date",  # single deadline
+    "start_time", "open_time", "close_time",  # event times (functional)
 })
 
 
@@ -250,12 +346,26 @@ def heuristic_contradiction(
     pa, pb = functional_parts(a.proposition), functional_parts(b.proposition)
 
     # 2. Same functional property, different value — but ONLY if the
-    # relation is in the functional whitelist. Generic possessives
-    # (investor, office, employee) are multi-valued.
+    # relation is in the functional whitelist (or contains a whitelisted
+    # phrase). Generic possessives (investor, office, employee) are
+    # multi-valued.
     _fr = (FUNCTIONAL_RELATIONS if functional_relations is None
            else functional_relations)
+    def _is_functional(rel: str) -> bool:
+        r = rel.lower()
+        if r in _fr:
+            return True
+        # Substring match: "personal best 5k time" contains "personal best".
+        # Use word boundaries to avoid partial matches.
+        for f in _fr:
+            # Skip very short terms to avoid false positives.
+            if len(f) < 4:
+                continue
+            if re.search(r"\b" + re.escape(f) + r"\b", r):
+                return True
+        return False
     if (pa and pb and pa[0] == pb[0] and pa[1] == pb[1] and pa[2] != pb[2]
-            and pa[1].lower() in _fr):
+            and _is_functional(pa[1])):
         return True
 
     # 3. Direct negation (cached parses; no regex per comparison).
