@@ -6,7 +6,7 @@ import tempfile
 import pytest
 
 from veritas import DistributedBeliefStore
-from veritas.distributed_bft import ByzantineTolerantLog, _canonical
+from veritas.experimental.distributed_bft import ByzantineTolerantLog, _canonical
 
 try:
     import cryptography
