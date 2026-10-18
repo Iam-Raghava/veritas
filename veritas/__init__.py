@@ -22,7 +22,9 @@ from .detect_llm import LLMJudgeDetector
 from .detect_hybrid import HybridDetector
 from .timetravel import TimeTravel
 from .distributed import DistributedBeliefStore, SQLiteEventLog, EventLog
-from .distributed_gossip import GossipEventLog
+# GossipEventLog lives in veritas.experimental (functional, but outside the
+# reviewed core story). Re-exported here for compatibility.
+from .experimental.distributed_gossip import GossipEventLog
 from .export import to_json, to_dot, to_graphml
 
 # BFT is optional (requires cryptography). Truly lazy via __getattr__
@@ -30,7 +32,7 @@ from .export import to_json, to_dot, to_graphml
 # This way `import veritas` never fails when cryptography is missing.
 def __getattr__(name: str):  # type: ignore[no-redef]
     if name == "ByzantineTolerantLog":
-        from . import distributed_bft as _bft_module
+        from .experimental import distributed_bft as _bft_module
         # distributed_bft catches ImportError internally and sets
         # _CRYPTO_AVAILABLE = False; check the flag, not the import.
         if not _bft_module._CRYPTO_AVAILABLE:
@@ -48,11 +50,6 @@ from .entrenchment import (
     recency_score,
 )
 from .persist import load, register_detector, save
-from .persist_backend import (
-    PersistenceBackend,
-    SQLiteBackend,
-    get_backend,
-)
 from .extractor import Claim, ClaimExtractor, HeuristicClaimExtractor
 from .extractor import (
     ExtractedClaim,
@@ -71,7 +68,6 @@ from .governor import (
 )
 from .observability import Metrics
 from .explain import Explainer
-from .calibration import CalibrationTracker
 from .policies import Policy, describe_policy
 
 __version__ = "0.16.0"
@@ -87,7 +83,6 @@ __all__ = [
     "entities_of",
     "Metrics",
     "Explainer",
-    "CalibrationTracker",
     "Policy",
     "describe_policy",
     "AuditEvent",
@@ -127,9 +122,6 @@ __all__ = [
     "HeuristicExtractor",
     "StructuredLLMExtractor",
     "VectorPrefilterDetector",
-    "PersistenceBackend",
-    "SQLiteBackend",
-    "get_backend",
     # ByzantineTolerantLog is available via lazy __getattr__ (PEP 562);
     # listed here for discoverability (import fails with a clear message
     # if cryptography is not installed).
