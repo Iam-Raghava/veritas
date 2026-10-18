@@ -14,11 +14,14 @@ Architecture:
     SQLiteEventLog: the log is a SQLite table. Works across processes
         on one machine, and across machines via a network filesystem.
         Zero new dependencies. Single point of failure (the file).
-    GossipEventLog (distributed_gossip.py): P2P replication, no SPOF,
-        partition-tolerant. Each node has its own SQLite file; events
-        replicate via gossip with Lamport timestamps.
-    ByzantineTolerantLog (distributed_bft.py): Gossip + Ed25519
-        signatures, equivocation detection, author-only retraction.
+    GossipEventLog (veritas.experimental.distributed_gossip): P2P
+        replication, no SPOF, partition-tolerant. Each node has its own
+        SQLite file; events replicate via gossip with Lamport
+        timestamps. Experimental: functional, outside the reviewed core.
+    ByzantineTolerantLog (veritas.experimental.distributed_bft):
+        Gossip + Ed25519 signatures, equivocation detection,
+        author-only retraction. Experimental: functional, outside the
+        reviewed core.
     DistributedBeliefStore: wraps BeliefStore. Writes append to the
         log; reads come from the local store (instant). sync() pulls
         new events and replays them through the deterministic engine.
