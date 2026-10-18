@@ -16,7 +16,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from veritas import BeliefStore
-from veritas.persist_backend import SQLiteBackend, get_backend
+from veritas.persist import save, load
 
 
 def test_rederivation_blocked_by_contradiction():
@@ -129,17 +129,15 @@ def test_assert_batch_topological():
 
 
 def test_storage_backend():
-    """Persistence backend protocol works."""
+    """Persistence roundtrip via veritas.persist works."""
     s = BeliefStore()
     s.assert_belief("Backend test", source="x", ground=True)
-    # SQLite via get_backend.
+    # SQLite roundtrip through the persist module.
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         path = f.name
     try:
-        backend = get_backend(f"sqlite:///{path}")
-        assert isinstance(backend, SQLiteBackend)
-        backend.save(s)
-        s2 = backend.load()
+        save(s, path)
+        s2 = load(path)
         assert len(s2.active_beliefs()) >= 1
     finally:
         os.unlink(path)
